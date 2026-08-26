@@ -3,6 +3,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
 import { XREstimatedLight } from 'three/examples/jsm/webxr/XREstimatedLight.js';
 import { conicalProfile, cornerTreatmentMm, decorativeOffsets, estimatedHoleCount, finishAppearance, forEachHole, normalizeConfig, PATTERNS, STAGGER_ROW } from '../state/config.js';
+import { bindPbrMaps, loadPbrMaps } from './pbrMaterials.js';
 
 const _hitPos = new THREE.Vector3();
 
@@ -245,169 +246,6 @@ function createSheetMaps(config, maxAnisotropy) {
     return maps;
   }
   return buildPatternMaps(c, maxAnisotropy);
-}
-
-const metalMapCache = new Map();
-
-function hashNoise(x, y) {
-  const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
-  return n - Math.floor(n);
-}
-
-function createMetalMaps(materialKey, finish, anisotropyLimit) {
-  const key = `${materialKey}|${finish}`;
-  const cached = metalMapCache.get(key);
-  if (cached) return cached;
-
-  const size = 256;
-  const height = new Float32Array(size * size);
-  const roughData = new Uint8Array(size * size * 4);
-  const metalData = new Uint8Array(size * size * 4);
-  const normalData = new Uint8Array(size * size * 4);
-  const colorData = new Uint8Array(size * size * 4);
-
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      let h;
-      if (materialKey === 'carbon') {
-        const mill = hashNoise(x * 0.08, y * 0.11) * 0.62 + hashNoise(x * 0.29, y * 0.07) * 0.38;
-        const scale = ((x * 13 + y * 7) % 19) / 19;
-        h = mill * 0.78 + scale * 0.22;
-      } else if (materialKey === 'ss304') {
-        const wave = y + Math.sin(y * 0.09) * 2.4;
-        const line = Math.abs(Math.sin((x + hashNoise(wave, 1.7) * 3.2) * 0.95));
-        h = line * 0.84 + hashNoise(x * 0.55, y) * 0.16;
-      } else {
-        const line = Math.abs(Math.sin(x * 1.12 + y * 0.07));
-        h = line * 0.5 + hashNoise(x * 1.8, y * 1.4) * 0.5;
-      }
-      if (finish === 'brushed') {
-        const brush = Math.abs(Math.sin(x * 1.55 + hashNoise(0, y) * 2.4));
-        h = brush * 0.88 + hashNoise(x, y) * 0.12;
-      } else if (finish === 'galvanized') {
-        const cell = hashNoise(Math.floor(x / 7), Math.floor(y / 6));
-        h = h * 0.28 + cell * 0.72;
-      }
-      height[y * size + x] = h;
-    }
-  }
-
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const i = y * size + x;
-      const o = i * 4;
-      const h = height[i];
-      let rough;
-      let metal;
-      if (materialKey === 'carbon') {
-        rough = 118 + h * 88;
-        metal = 198 + h * 36;
-      } else if (materialKey === 'ss304') {
-        rough = 16 + h * 48;
-        metal = 238 + h * 16;
-      } else {
-        rough = 26 + h * 42;
-        metal = 226 + h * 24;
-      }
-      if (finish === 'brushed') {
-        rough = 28 + h * 86;
-        metal = 236;
-      } else if (finish === 'galvanized') {
-        rough = 78 + h * 74;
-        metal = 178 + h * 48;
-      }
-      roughData[o] = roughData[o + 1] = roughData[o + 2] = rough;
-      roughData[o + 3] = 255;
-      metalData[o] = metalData[o + 1] = metalData[o + 2] = metal;
-      metalData[o + 3] = 255;
-
-      let cr;
-      let cg;
-      let cb;
-      if (materialKey === 'carbon') {
-        const v = 150 + h * 70;
-        cr = v + 10;
-        cg = v;
-        cb = v - 12;
-      } else if (materialKey === 'ss304') {
-        const v = 236 + h * 18;
-        cr = v - 2;
-        cg = v;
-        cb = v + 6;
-      } else {
-        const v = 244 + h * 10;
-        cr = v;
-        cg = v + 1;
-        cb = v + 4;
-      }
-      colorData[o] = Math.min(255, cr);
-      colorData[o + 1] = Math.min(255, cg);
-      colorData[o + 2] = Math.min(255, cb);
-      colorData[o + 3] = 255;
-
-      const xl = height[y * size + ((x + size - 1) % size)];
-      const xr = height[y * size + ((x + 1) % size)];
-      const yu = height[((y + size - 1) % size) * size + x];
-      const yd = height[((y + 1) % size) * size + x];
-      const dx = (xr - xl) * 2.4;
-      const dy = (yd - yu) * 2.4;
-      const inv = 1 / Math.hypot(dx, dy, 1);
-      normalData[o] = (-dx * inv * 0.5 + 0.5) * 255;
-      normalData[o + 1] = (-dy * inv * 0.5 + 0.5) * 255;
-      normalData[o + 2] = (inv * 0.5 + 0.5) * 255;
-      normalData[o + 3] = 255;
-    }
-  }
-
-  const toMap = (data, srgb = false) => {
-    const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
-    tex.wrapS = THREE.RepeatWrapping;
-    tex.wrapT = THREE.RepeatWrapping;
-    tex.magFilter = THREE.LinearFilter;
-    tex.minFilter = THREE.LinearMipmapLinearFilter;
-    tex.generateMipmaps = true;
-    tex.anisotropy = Math.max(1, anisotropyLimit || 1);
-    tex.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-    tex.needsUpdate = true;
-    return tex;
-  };
-
-  const maps = {
-    colorMap: toMap(colorData, true),
-    roughnessMap: toMap(roughData),
-    metalnessMap: toMap(metalData),
-    normalMap: toMap(normalData)
-  };
-  metalMapCache.set(key, maps);
-  return maps;
-}
-
-function bindMetalMaps(mat, c, appearance, sheetRepeat, anisotropyLimit) {
-  if (!mat) return;
-  if (c.finish === 'powder') {
-    mat.map = null;
-    mat.roughnessMap = null;
-    mat.metalnessMap = null;
-    mat.normalMap = null;
-    if (mat.normalScale) mat.normalScale.set(1, 1);
-    if (mat.isMeshPhysicalMaterial) mat.anisotropy = 0;
-    return;
-  }
-  const maps = createMetalMaps(c.material, c.finish, anisotropyLimit);
-  maps.colorMap.repeat.copy(sheetRepeat);
-  maps.roughnessMap.repeat.copy(sheetRepeat);
-  maps.metalnessMap.repeat.copy(sheetRepeat);
-  maps.normalMap.repeat.copy(sheetRepeat);
-  mat.map = maps.colorMap;
-  mat.roughnessMap = maps.roughnessMap;
-  mat.metalnessMap = maps.metalnessMap;
-  mat.normalMap = maps.normalMap;
-  const grain = c.material === 'carbon' ? 0.46 : c.finish === 'brushed' ? 0.4 : c.material === 'alu' ? 0.22 : 0.26;
-  if (mat.normalScale) mat.normalScale.set(grain, grain);
-  if (mat.isMeshPhysicalMaterial) {
-    mat.anisotropy = appearance.anisotropy || 0;
-    mat.anisotropyRotation = 0;
-  }
 }
 
 function bindPatternMaps(faceMat, backMat, maps, c) {
@@ -1012,7 +850,7 @@ export class Three3DScene {
   }
 
   async load(config) {
-    this.updateConfig(config);
+    await this.updateConfig(config);
   }
 
   async updateConfig(input) {
@@ -1023,51 +861,67 @@ export class Three3DScene {
     const nextMask = maskKey(c);
     const nextForm = formKey(c);
     this.onBusy(true);
+    try {
+      if (this.model && nextForm === this.formId && nextMask === this.maskId && nextAppearance !== this.appearanceId) {
+        await this.applyAppearance(c);
+        if (this.disposed || gen !== this.configGen) return;
+        this.appearanceId = nextAppearance;
+        this.config = c;
+        return;
+      }
 
-    if (this.model && nextForm === this.formId && nextMask === this.maskId && nextAppearance !== this.appearanceId) {
-      this.applyAppearance(c);
-      this.appearanceId = nextAppearance;
-      this.config = c;
-      this.onBusy(false);
-      return;
-    }
+      if (this.model && nextForm === this.formId && nextMask !== this.maskId) {
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        if (this.disposed || gen !== this.configGen) return;
+        this.replaceMask(c);
+        await this.applyAppearance(c);
+        if (this.disposed || gen !== this.configGen) return;
+        this.maskId = nextMask;
+        this.appearanceId = nextAppearance;
+        this.config = c;
+        this.renderer.shadowMap.needsUpdate = true;
+        return;
+      }
 
-    if (this.model && nextForm === this.formId && nextMask !== this.maskId) {
       await new Promise((resolve) => requestAnimationFrame(resolve));
       if (this.disposed || gen !== this.configGen) return;
-      this.replaceMask(c);
-      this.applyAppearance(c);
+      await this.applyModel(c);
+      if (this.disposed || gen !== this.configGen) return;
+      this.formId = nextForm;
       this.maskId = nextMask;
       this.appearanceId = nextAppearance;
-      this.config = c;
-      this.renderer.shadowMap.needsUpdate = true;
-      this.onBusy(false);
-      return;
+    } finally {
+      if (gen === this.configGen) this.onBusy(false);
     }
-
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-    if (this.disposed || gen !== this.configGen) return;
-    this.applyModel(c);
-    this.formId = nextForm;
-    this.maskId = nextMask;
-    this.appearanceId = nextAppearance;
-    if (gen === this.configGen) this.onBusy(false);
   }
 
-  applyAppearance(c) {
+  async applyAppearance(c) {
     const appearance = finishAppearance(c);
-    const sheetRepeat = new THREE.Vector2(Math.max(8, c.width / 55), Math.max(8, c.height / 55));
+    const sheetRepeat = new THREE.Vector2(Math.max(3, c.width / 280), Math.max(3, c.height / 280));
+    let maps = null;
+    try {
+      maps = await loadPbrMaps(c, this.maxAnisotropy);
+    } catch {
+      maps = null;
+    }
+    if (this.disposed) return;
+    const tint = maps?.colorMap && appearance.pbr?.useColorMap
+      ? (appearance.pbr.tint || '#ffffff')
+      : appearance.hex;
     const apply = (mat, extraMetal = 0, extraRough = 0) => {
       if (!mat) return;
-      mat.color.set(appearance.hex);
+      mat.color.set(tint);
+      if (maps?.colorMap && appearance.pbr?.useColorMap && appearance.pbr.colorBoost) {
+        mat.color.multiplyScalar(appearance.pbr.colorBoost);
+      }
       mat.metalness = Math.min(1, appearance.metalness + extraMetal);
-      mat.roughness = Math.max(0.08, appearance.roughness + extraRough);
+      mat.roughness = Math.max(0.04, appearance.roughness + extraRough);
       mat.envMapIntensity = appearance.envMapIntensity + (extraMetal ? 0.12 : 0);
       if (mat.isMeshPhysicalMaterial) {
         mat.clearcoat = appearance.clearcoat;
-        mat.clearcoatRoughness = c.finish === 'powder' ? 0.38 : 0.22;
+        mat.clearcoatRoughness = c.finish === 'powder' ? 0.42 : 0.18;
       }
-      bindMetalMaps(mat, c, appearance, sheetRepeat, this.maxAnisotropy);
+      if (maps) bindPbrMaps(mat, maps, appearance, sheetRepeat);
       mat.needsUpdate = true;
     };
     apply(this.faceMat);
@@ -1117,7 +971,7 @@ export class Three3DScene {
     this.formedMat = this.formedGroup?.children[0]?.material || null;
   }
 
-  applyModel(c) {
+  async applyModel(c) {
     this.config = c;
     const old = this.model;
     if (old) this.root.remove(old);
@@ -1158,11 +1012,12 @@ export class Three3DScene {
     solidMat.bumpScale = 0;
     addSheetSkins(group, faceMat, backMat, solidMat, width, height, thickness, c);
 
-    const edgeMat = new THREE.MeshStandardMaterial({
+    const edgeMat = new THREE.MeshPhysicalMaterial({
       color: appearance.hex,
       metalness: Math.min(1, appearance.metalness + 0.08),
-      roughness: Math.max(0.12, appearance.roughness - 0.08),
-      envMapIntensity: appearance.envMapIntensity + 0.12
+      roughness: Math.max(0.08, appearance.roughness - 0.08),
+      envMapIntensity: appearance.envMapIntensity + 0.12,
+      clearcoat: appearance.clearcoat
     });
     addFormDetails(group, c, width, height, thickness, edgeMat);
     this.formedGroup = addFormedFeatures(group, c, width, height, thickness, solidMat);
@@ -1173,7 +1028,11 @@ export class Three3DScene {
     this.backMat = backMat;
     this.solidMat = solidMat;
     this.edgeMat = edgeMat;
-    this.applyAppearance(c);
+    await this.applyAppearance(c);
+    if (this.disposed) {
+      disposeObject(group);
+      return;
+    }
     this.root.add(group);
     if (old) disposeObject(old);
 

@@ -1,3 +1,5 @@
+import { pbrPresetFor } from './pbrPresets.js';
+
 export const FINISH_COLORS = {
   ral9005: { label: 'RAL 9005', name: 'Jet black', hex: '#0a0a0d', color: 0x0a0a0d },
   ral7016: { label: 'RAL 7016', name: 'Anthracite Grey', hex: '#383e42', color: 0x383e42 },
@@ -34,7 +36,7 @@ export const MATERIALS = {
     roughness: 0.46,
     grain: 'rolled',
     preview: { hi: '#9a9590', mid: '#6a6762', lo: '#3c3a37' },
-    swatch: 'linear-gradient(125deg,#2a2825 0%,#8a8580 18%,#5c5854 40%,#c4bfb8 56%,#4a4743 78%,#1c1b19 100%)'
+    swatch: 'url("./materials/mild_steel_mill/preview.png")'
   },
   ss304: {
     label: 'Stainless 304',
@@ -46,7 +48,7 @@ export const MATERIALS = {
     roughness: 0.11,
     grain: 'brushed',
     preview: { hi: '#f4f7f9', mid: '#c5ced4', lo: '#8f99a1' },
-    swatch: 'linear-gradient(125deg,#8f9aa3 0%,#f7f9fb 26%,#c2ccd3 48%,#ffffff 62%,#9aa6ae 100%)'
+    swatch: 'url("./materials/stainless_304_brushed/preview.png")'
   },
   alu: {
     label: 'Aluminium',
@@ -58,7 +60,7 @@ export const MATERIALS = {
     roughness: 0.17,
     grain: 'fine',
     preview: { hi: '#fcfdfe', mid: '#e4e8eb', lo: '#b8bcc0' },
-    swatch: 'linear-gradient(125deg,#c8ccd0 0%,#fcfdfe 28%,#dfe3e6 50%,#ffffff 64%,#b4b8bc 100%)'
+    swatch: 'url("./materials/brushed_aluminium/preview.png")'
   }
 };
 
@@ -519,35 +521,22 @@ export function estimatedWeightKg(config) {
 export function finishAppearance(config) {
   const c = normalizeConfig(config);
   const material = MATERIALS[c.material] || MATERIALS.carbon;
-  const finish = FINISHES[c.finish] || FINISHES.mill;
-  let hex = material.baseHex;
-  let metalness = material.metalness;
-  let roughness = Math.min(0.72, Math.max(0.08, material.roughness + (finish.roughness - 0.36)));
-  let envMapIntensity = c.material === 'ss304' ? 2.55 : c.material === 'alu' ? 2.2 : 1.42;
-  let clearcoat = 0.05;
-  let anisotropy = c.material === 'ss304' ? 0.28 : c.material === 'alu' ? 0.16 : 0.04;
+  const preset = pbrPresetFor(c);
+  let hex = preset.hex || material.baseHex;
+  let metalness = preset.metalness;
+  let roughness = preset.roughness;
+  let envMapIntensity = preset.envMapIntensity;
+  let clearcoat = preset.clearcoat;
+  let anisotropy = preset.anisotropy;
   if (c.finish === 'powder') {
     hex = FINISH_COLORS[c.color].hex;
-    metalness = 0.22;
-    roughness = 0.48;
-    envMapIntensity = 0.9;
-    clearcoat = 0.32;
+    metalness = 0;
+    roughness = preset.roughness;
+    envMapIntensity = preset.envMapIntensity;
+    clearcoat = preset.clearcoat;
     anisotropy = 0;
-  } else if (c.finish === 'galvanized') {
-    hex = material.galvanizedHex || '#b4c0b6';
-    metalness = 0.82;
-    roughness = 0.36;
-    envMapIntensity = 1.42;
-    anisotropy = 0.06;
-  } else if (c.finish === 'brushed') {
-    hex = material.baseHex;
-    metalness = Math.min(1, material.metalness + 0.03);
-    roughness = Math.max(0.09, material.roughness * 0.68);
-    envMapIntensity = c.material === 'carbon' ? 1.75 : 2.55;
-    anisotropy = c.material === 'carbon' ? 0.38 : 0.86;
-    clearcoat = 0.04;
   }
-  return { hex, metalness, roughness, envMapIntensity, clearcoat, anisotropy, grain: material.grain };
+  return { hex, metalness, roughness, envMapIntensity, clearcoat, anisotropy, grain: material.grain, pbr: preset };
 }
 
 export function quantityBreak(qty) {

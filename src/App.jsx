@@ -456,7 +456,7 @@ export function App() {
                 <div className="material-grid">
                   {Object.entries(MATERIALS).map(([key, item]) => (
                     <button type="button" key={key} className={`material-card ${config.material === key ? 'active' : ''}`} onClick={() => dispatch({ type: 'set', key: 'material', value: key })}>
-                      <span className="material-swatch" style={{ background: item.swatch }} />
+                      <span className="material-swatch" style={{ backgroundImage: item.swatch }} />
                       <strong>{item.label}</strong>
                       <small>{item.short}</small>
                     </button>

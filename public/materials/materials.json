@@ -1,0 +1,149 @@
+[
+  {
+    "id": "stainless_304_brushed",
+    "name": "Stainless Steel 304 \u2014 Brushed",
+    "maps": {
+      "baseColor": "stainless_304_brushed/basecolor.png",
+      "normal": "stainless_304_brushed/normal.png",
+      "roughness": "stainless_304_brushed/roughness.png",
+      "metallic": "stainless_304_brushed/metallic.png",
+      "ao": "stainless_304_brushed/ao.png",
+      "height": "stainless_304_brushed/height.png",
+      "orm": "stainless_304_brushed/orm.png",
+      "anisotropy": "stainless_304_brushed/anisotropy.png"
+    },
+    "threejs": {
+      "metalness": 1,
+      "roughness": 0.33332258462905884,
+      "anisotropy": 0.82
+    }
+  },
+  {
+    "id": "stainless_316_satin",
+    "name": "Stainless Steel 316 \u2014 Satin",
+    "maps": {
+      "baseColor": "stainless_316_satin/basecolor.png",
+      "normal": "stainless_316_satin/normal.png",
+      "roughness": "stainless_316_satin/roughness.png",
+      "metallic": "stainless_316_satin/metallic.png",
+      "ao": "stainless_316_satin/ao.png",
+      "height": "stainless_316_satin/height.png",
+      "orm": "stainless_316_satin/orm.png",
+      "anisotropy": "stainless_316_satin/anisotropy.png"
+    },
+    "threejs": {
+      "metalness": 1,
+      "roughness": 0.3599355220794678,
+      "anisotropy": 0.58
+    }
+  },
+  {
+    "id": "stainless_polished",
+    "name": "Stainless Steel \u2014 Polished / Mirror",
+    "maps": {
+      "baseColor": "stainless_polished/basecolor.png",
+      "normal": "stainless_polished/normal.png",
+      "roughness": "stainless_polished/roughness.png",
+      "metallic": "stainless_polished/metallic.png",
+      "ao": "stainless_polished/ao.png",
+      "height": "stainless_polished/height.png",
+      "orm": "stainless_polished/orm.png"
+    },
+    "threejs": {
+      "metalness": 1,
+      "roughness": 0.0874304324388504,
+      "anisotropy": 0
+    }
+  },
+  {
+    "id": "galvanized_steel",
+    "name": "Galvanized Steel",
+    "maps": {
+      "baseColor": "galvanized_steel/basecolor.png",
+      "normal": "galvanized_steel/normal.png",
+      "roughness": "galvanized_steel/roughness.png",
+      "metallic": "galvanized_steel/metallic.png",
+      "ao": "galvanized_steel/ao.png",
+      "height": "galvanized_steel/height.png",
+      "orm": "galvanized_steel/orm.png"
+    },
+    "threejs": {
+      "metalness": 1,
+      "roughness": 0.44834232330322266,
+      "anisotropy": 0
+    }
+  },
+  {
+    "id": "mild_steel_mill",
+    "name": "Mild / Carbon Steel \u2014 Mill Finish",
+    "maps": {
+      "baseColor": "mild_steel_mill/basecolor.png",
+      "normal": "mild_steel_mill/normal.png",
+      "roughness": "mild_steel_mill/roughness.png",
+      "metallic": "mild_steel_mill/metallic.png",
+      "ao": "mild_steel_mill/ao.png",
+      "height": "mild_steel_mill/height.png",
+      "orm": "mild_steel_mill/orm.png"
+    },
+    "threejs": {
+      "metalness": 1,
+      "roughness": 0.47968971729278564,
+      "anisotropy": 0
+    }
+  },
+  {
+    "id": "brushed_aluminium",
+    "name": "Brushed Aluminium",
+    "maps": {
+      "baseColor": "brushed_aluminium/basecolor.png",
+      "normal": "brushed_aluminium/normal.png",
+      "roughness": "brushed_aluminium/roughness.png",
+      "metallic": "brushed_aluminium/metallic.png",
+      "ao": "brushed_aluminium/ao.png",
+      "height": "brushed_aluminium/height.png",
+      "orm": "brushed_aluminium/orm.png",
+      "anisotropy": "brushed_aluminium/anisotropy.png"
+    },
+    "threejs": {
+      "metalness": 1,
+      "roughness": 0.3682619631290436,
+      "anisotropy": 0.76
+    }
+  },
+  {
+    "id": "powdercoat_matte",
+    "name": "Powder-Coated Steel \u2014 Matte",
+    "maps": {
+      "baseColor": "powdercoat_matte/basecolor.png",
+      "normal": "powdercoat_matte/normal.png",
+      "roughness": "powdercoat_matte/roughness.png",
+      "metallic": "powdercoat_matte/metallic.png",
+      "ao": "powdercoat_matte/ao.png",
+      "height": "powdercoat_matte/height.png",
+      "orm": "powdercoat_matte/orm.png"
+    },
+    "threejs": {
+      "metalness": 0,
+      "roughness": 0.7598316669464111,
+      "anisotropy": 0
+    }
+  },
+  {
+    "id": "powdercoat_satin",
+    "name": "Powder-Coated Steel \u2014 Satin",
+    "maps": {
+      "baseColor": "powdercoat_satin/basecolor.png",
+      "normal": "powdercoat_satin/normal.png",
+      "roughness": "powdercoat_satin/roughness.png",
+      "metallic": "powdercoat_satin/metallic.png",
+      "ao": "powdercoat_satin/ao.png",
+      "height": "powdercoat_satin/height.png",
+      "orm": "powdercoat_satin/orm.png"
+    },
+    "threejs": {
+      "metalness": 0,
+      "roughness": 0.4797973036766052,
+      "anisotropy": 0
+    }
+  }
+]

@@ -3,7 +3,12 @@ const TOKEN_KEY = 'steel-admin-token';
 const PRODUCT_FIELDS = [
   'manufacturer', 'productName', 'skuPrefix', 'basePrice', 'currency', 'width', 'depth', 'height',
   'contactEmail', 'accent', 'familyName', 'familyCategory', 'omniClass', 'masterFormat',
-  'assemblyCode', 'ifcClass', 'keynote', 'productUrl', 'lod', 'hostMethod'
+  'assemblyCode', 'ifcClass', 'keynote', 'productUrl', 'lod', 'hostMethod',
+  'materialRateCarbon', 'materialRateSs304', 'materialRateAlu',
+  'finishRateMill', 'finishRateGalvanized', 'finishRateBrushed', 'finishRatePowder',
+  'punchRate', 'formedPunchRate', 'topFoldAdd', 'sideReturnsAdd', 'cassetteAdd',
+  'customFoldAdd', 'mountingAdd', 'formedPatternAdd', 'notchAdd', 'deburrStandardAdd',
+  'deburrFineAdd', 'toleranceFineAdd', 'flatnessPrecisionAdd', 'nonStandardBendAdd'
 ];
 
 function token() {

@@ -20,7 +20,7 @@
       <input class="text-input" id="adminToken" type="password" autocomplete="current-password" required>
       <p id="loginError" class="muted hidden">Invalid token.</p>
       <button class="btn btn-primary" type="submit">Unlock portal</button>
-      <small class="muted">Set ADMIN_TOKEN on the server. Local default is steelworks-local.</small>
+      <small class="muted">Set a private ADMIN_TOKEN on the server. Production startup is blocked when it is missing.</small>
     </form>
   </div>
   <main id="adminApp" class="admin-shell hidden">
@@ -58,6 +58,33 @@
           <div><label class="label">Depth (mm)</label><input class="text-input" type="number" id="depth"></div>
           <div><label class="label">Height (mm)</label><input class="text-input" type="number" id="height"></div>
           <div><label class="label">Sales email</label><input class="text-input" type="email" id="contactEmail"></div>
+        </div>
+        <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--line)">
+          <h2 style="margin-bottom:10px">Pricing model</h2>
+          <p style="color:#64748b;font-size:13px;line-height:1.55;margin-top:0">Rates feed the live configurator, RFQ summary and specification PDF. Material and finish rates are per kg; punching is per opening; the remaining values are per configured sheet.</p>
+          <div class="field-grid">
+            <div><label class="label">Carbon steel / kg</label><input class="text-input" type="number" step="0.01" min="0" id="materialRateCarbon"></div>
+            <div><label class="label">Stainless 304 / kg</label><input class="text-input" type="number" step="0.01" min="0" id="materialRateSs304"></div>
+            <div><label class="label">Aluminium / kg</label><input class="text-input" type="number" step="0.01" min="0" id="materialRateAlu"></div>
+            <div><label class="label">Mill finish / kg</label><input class="text-input" type="number" step="0.01" min="0" id="finishRateMill"></div>
+            <div><label class="label">Galvanized finish / kg</label><input class="text-input" type="number" step="0.01" min="0" id="finishRateGalvanized"></div>
+            <div><label class="label">Brushed finish / kg</label><input class="text-input" type="number" step="0.01" min="0" id="finishRateBrushed"></div>
+            <div><label class="label">Powder coat / kg</label><input class="text-input" type="number" step="0.01" min="0" id="finishRatePowder"></div>
+            <div><label class="label">Through punch / opening</label><input class="text-input" type="number" step="0.001" min="0" id="punchRate"></div>
+            <div><label class="label">Formed punch / opening</label><input class="text-input" type="number" step="0.001" min="0" id="formedPunchRate"></div>
+            <div><label class="label">Top fold add</label><input class="text-input" type="number" step="0.01" min="0" id="topFoldAdd"></div>
+            <div><label class="label">Side returns add</label><input class="text-input" type="number" step="0.01" min="0" id="sideReturnsAdd"></div>
+            <div><label class="label">Cassette add</label><input class="text-input" type="number" step="0.01" min="0" id="cassetteAdd"></div>
+            <div><label class="label">Custom fold add</label><input class="text-input" type="number" step="0.01" min="0" id="customFoldAdd"></div>
+            <div><label class="label">Mounting add</label><input class="text-input" type="number" step="0.01" min="0" id="mountingAdd"></div>
+            <div><label class="label">Formed pattern add</label><input class="text-input" type="number" step="0.01" min="0" id="formedPatternAdd"></div>
+            <div><label class="label">Notch add</label><input class="text-input" type="number" step="0.01" min="0" id="notchAdd"></div>
+            <div><label class="label">Standard deburr add</label><input class="text-input" type="number" step="0.01" min="0" id="deburrStandardAdd"></div>
+            <div><label class="label">Fine deburr add</label><input class="text-input" type="number" step="0.01" min="0" id="deburrFineAdd"></div>
+            <div><label class="label">Fine tolerance add</label><input class="text-input" type="number" step="0.01" min="0" id="toleranceFineAdd"></div>
+            <div><label class="label">Precision flatness add</label><input class="text-input" type="number" step="0.01" min="0" id="flatnessPrecisionAdd"></div>
+            <div><label class="label">Non-90° bend add</label><input class="text-input" type="number" step="0.01" min="0" id="nonStandardBendAdd"></div>
+          </div>
         </div>
         <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--line)">
           <h2 style="margin-bottom:10px">Manufacturing data onboarding</h2>

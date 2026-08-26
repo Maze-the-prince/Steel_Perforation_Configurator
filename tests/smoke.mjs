@@ -13,6 +13,7 @@ import {
   recommendedManufacturingFixes,
   cornerTreatmentMm
 } from '../src/state/config.js';
+import { pbrPresetFor } from '../src/state/pbrPresets.js';
 import { buildCsv, buildDxf, flatPatternMetrics } from '../src/export/manufacturing.js';
 
 const slot = normalizeConfig({
@@ -88,5 +89,10 @@ assert.notEqual(millCarbon.hex, mill304.hex, 'carbon and stainless mill colors m
 assert.notEqual(mill304.hex, millAlu.hex, 'stainless and aluminium mill colors must differ');
 assert.ok(millCarbon.roughness > mill304.roughness, 'carbon mill should be duller than stainless');
 assert.ok(millAlu.metalness > 0.9 && mill304.metalness > millAlu.metalness - 0.01);
+assert.equal(pbrPresetFor({ material: 'carbon', finish: 'mill' }).id, 'mild_steel_mill');
+assert.equal(pbrPresetFor({ material: 'ss304', finish: 'brushed' }).id, 'stainless_304_brushed');
+assert.equal(pbrPresetFor({ material: 'alu', finish: 'mill' }).id, 'brushed_aluminium');
+assert.equal(pbrPresetFor({ material: 'carbon', finish: 'galvanized' }).id, 'galvanized_steel');
+assert.equal(pbrPresetFor({ material: 'ss304', finish: 'powder' }).id, 'powdercoat_satin');
 
 console.log('SteelWorks V1.1 smoke tests passed.');

@@ -250,7 +250,9 @@ a { color: inherit; }
   width: 100%; height: 26px; border-radius: 4px; display: block;
   border: 1px solid rgba(255,255,255,.14);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.45), inset 0 -10px 14px rgba(0,0,0,.32);
-  background-size: 180% 100%;
+  background-size: cover;
+  background-position: 50% 50%;
+  background-color: #5c5854;
 }
 .material-card strong { font-size: 10px; line-height: 1.2; }
 .material-card small { color: #76818a; font-size: 9px; font-weight: 800; letter-spacing: .08em; }
