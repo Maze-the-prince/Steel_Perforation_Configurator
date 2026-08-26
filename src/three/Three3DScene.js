@@ -897,7 +897,7 @@ export class Three3DScene {
 
   async applyAppearance(c) {
     const appearance = finishAppearance(c);
-    const sheetRepeat = new THREE.Vector2(Math.max(3, c.width / 280), Math.max(3, c.height / 280));
+    const sheetRepeat = new THREE.Vector2(Math.max(2, c.width / 420), Math.max(2, c.height / 420));
     let maps = null;
     try {
       maps = await loadPbrMaps(c, this.maxAnisotropy);

@@ -39,44 +39,61 @@ async function loadOptional(url, options) {
   }
 }
 
+async function loadFirst(urls, options) {
+  for (const url of urls) {
+    const texture = await loadOptional(url, options);
+    if (texture) return texture;
+  }
+  return null;
+}
+
+function mapUrls(folder, name) {
+  return [
+    assetUrl(`materials/${folder}/${name}.jpg`),
+    assetUrl(`materials/${folder}/${name}.png`)
+  ];
+}
+
 export async function loadPbrMaps(config, anisotropyLimit = 1) {
   const preset = pbrPresetFor(config);
-  const cached = cache.get(preset.id);
+  const folder = preset.folder || preset.id;
+  const cached = cache.get(folder);
   if (cached) return cached;
 
   const pending = (async () => {
-    const folder = `materials/${preset.id}`;
     const aniso = anisotropyLimit;
     const [colorMap, normalMap, roughnessMap, metalnessMap, anisotropyMap] = await Promise.all([
-      loadOptional(assetUrl(`${folder}/basecolor.png`), { srgb: true, anisotropy: aniso }),
-      loadOptional(assetUrl(`${folder}/normal.png`), { anisotropy: aniso }),
-      loadOptional(assetUrl(`${folder}/roughness.png`), { anisotropy: aniso }),
-      loadOptional(assetUrl(`${folder}/metallic.png`), { anisotropy: aniso }),
-      preset.anisotropyMap ? loadOptional(assetUrl(`${folder}/anisotropy.png`), { anisotropy: aniso }) : Promise.resolve(null)
+      loadFirst(mapUrls(folder, 'basecolor'), { srgb: true, anisotropy: aniso }),
+      loadFirst(mapUrls(folder, 'normal'), { anisotropy: aniso }),
+      loadFirst(mapUrls(folder, 'roughness'), { anisotropy: aniso }),
+      preset.useMetalnessMap === false
+        ? Promise.resolve(null)
+        : loadFirst(mapUrls(folder, 'metallic'), { anisotropy: aniso }),
+      preset.anisotropyMap ? loadFirst(mapUrls(folder, 'anisotropy'), { anisotropy: aniso }) : Promise.resolve(null)
     ]);
     if (!colorMap && !normalMap && !roughnessMap && !metalnessMap) {
-      throw new Error(`PBR maps missing for ${preset.id}`);
+      throw new Error(`PBR maps missing for ${folder}`);
     }
-    return { preset, colorMap, normalMap, roughnessMap, metalnessMap, aoMap: null, anisotropyMap };
+    return { preset, folder, colorMap, normalMap, roughnessMap, metalnessMap, aoMap: null, anisotropyMap };
   })();
 
-  cache.set(preset.id, pending);
+  cache.set(folder, pending);
   try {
     return await pending;
   } catch (err) {
-    cache.delete(preset.id);
+    cache.delete(folder);
     throw err;
   }
 }
 
 export function bindPbrMaps(mat, maps, appearance, sheetRepeat) {
   if (!mat || !maps) return;
-  const preset = maps.preset || appearance.pbr || {};
+  const preset = appearance.pbr || maps.preset || {};
   const useColorMap = preset.useColorMap !== false;
   mat.map = useColorMap ? maps.colorMap : null;
   mat.normalMap = maps.normalMap;
   mat.roughnessMap = maps.roughnessMap;
-  mat.metalnessMap = maps.metalnessMap;
+  mat.metalnessMap = preset.useMetalnessMap === false ? null : maps.metalnessMap;
   mat.aoMap = maps.aoMap || null;
   mat.aoMapIntensity = maps.aoMap ? 0.85 : 0;
   if (mat.normalScale) mat.normalScale.set(1, 1);

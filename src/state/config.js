@@ -36,7 +36,7 @@ export const MATERIALS = {
     roughness: 0.46,
     grain: 'rolled',
     preview: { hi: '#9a9590', mid: '#6a6762', lo: '#3c3a37' },
-    swatch: 'url("./materials/mild_steel_mill/preview.png")'
+    swatch: 'url("./materials/sheet_metal_001/preview.png")'
   },
   ss304: {
     label: 'Stainless 304',
@@ -48,7 +48,7 @@ export const MATERIALS = {
     roughness: 0.11,
     grain: 'brushed',
     preview: { hi: '#f4f7f9', mid: '#c5ced4', lo: '#8f99a1' },
-    swatch: 'url("./materials/stainless_304_brushed/preview.png")'
+    swatch: 'url("./materials/metal049a/preview.png")'
   },
   alu: {
     label: 'Aluminium',
@@ -60,7 +60,7 @@ export const MATERIALS = {
     roughness: 0.17,
     grain: 'fine',
     preview: { hi: '#fcfdfe', mid: '#e4e8eb', lo: '#b8bcc0' },
-    swatch: 'url("./materials/brushed_aluminium/preview.png")'
+    swatch: 'url("./materials/metal049a/preview.png")'
   }
 };
 
