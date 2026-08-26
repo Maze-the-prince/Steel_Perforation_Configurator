@@ -1,0 +1,9 @@
+{
+  "name": "SteelWorks Perforated Sheet Configurator",
+  "short_name": "SteelWorks 3D",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0f1419",
+  "theme_color": "#11161b",
+  "icons": []
+}

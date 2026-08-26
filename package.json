@@ -1,0 +1,29 @@
+{
+  "name": "steelworks-perforated-sheet-configurator",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Parametric Three.js configurator for perforated steel sheets and architectural metal panels.",
+  "scripts": {
+    "start": "npm run build && node server.mjs",
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "npm run build && node server.mjs",
+    "serve:built": "node server.mjs",
+    "test:smoke": "node tests/smoke.mjs",
+    "test:patterns": "node tests/patterns.mjs",
+    "test": "npm run test:smoke && npm run test:patterns"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "0.164.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  }
+}

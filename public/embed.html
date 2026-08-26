@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="styles.css">
+  <title>Perforated Metal Sheet — website embed</title>
+</head>
+<body class="embed-body">
+  <div class="embed-wrap">
+    <div class="website-mock">
+      <div class="fake-nav"><strong>Steel Manufacturer Website</strong><span>Embedded 3D product configurator</span></div>
+      <div class="iframe-wrap">
+        <object data="./index.html?embed=1" type="text/html" aria-label="Perforated metal sheet configurator">
+          <iframe src="./index.html?embed=1" allow="xr-spatial-tracking; fullscreen; camera" title="Perforated metal sheet configurator"></iframe>
+        </object>
+      </div>
+    </div>
+  </div>
+  <script>
+    window.addEventListener('message', (event) => {
+      if (event.data?.source !== 'steel-configurator') return;
+      console.info('[host postMessage]', event.data.type, event.data);
+    });
+  </script>
+</body>
+</html>
