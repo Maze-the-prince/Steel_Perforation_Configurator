@@ -12,7 +12,8 @@
     "serve:built": "node server.mjs",
     "test:smoke": "node tests/smoke.mjs",
     "test:patterns": "node tests/patterns.mjs",
-    "test": "npm run test:smoke && npm run test:patterns"
+    "test:ar-usdz": "node tests/ar-usdz.mjs",
+    "test": "npm run test:smoke && npm run test:patterns && npm run test:ar-usdz"
   },
   "engines": {
     "node": ">=18"

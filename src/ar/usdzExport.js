@@ -1,25 +1,80 @@
 import * as THREE from 'three';
+import { PATTERNS, STAGGER_ROW, normalizeConfig } from '../state/config.js';
 
-/** Bake alphaMap holes into an RGBA map that USDZ / Quick Look understands. */
-export async function bakeUsdzDiffuseMap(material, colorHex = '#b8bcc2') {
+/** Tile repeat for a perforated face — used by Quick Look texture baking and tests. */
+export function usdzFaceRepeat(config, innerWidthMm, innerHeightMm) {
+  const c = normalizeConfig(config);
+  const pattern = PATTERNS[c.pattern];
+  const staggered = Boolean(pattern?.staggered);
+  const kind = pattern?.kind;
+  const rowPitch = (kind === 'slot' || kind === 'bridge') ? c.rowPitch : (staggered ? c.pitch * STAGGER_ROW : c.pitch);
+  const tileW = Math.max(0.01, c.pitch);
+  const tileH = Math.max(0.01, staggered ? rowPitch * 2 : rowPitch);
+  const zoneW = Math.max(0.01, innerWidthMm);
+  const zoneH = Math.max(0.01, innerHeightMm);
+  return {
+    pattern: c.pattern,
+    repeatX: zoneW / tileW,
+    repeatY: zoneH / tileH,
+    tileW,
+    tileH
+  };
+}
+
+/** Bake alphaMap holes into a single tiled RGBA map that Quick Look can render. */
+export async function bakeUsdzDiffuseMap(material, colorHex = '#b8bcc2', { maxSize = 1024 } = {}) {
   const alphaMap = material.alphaMap;
   if (!alphaMap?.image) return null;
 
   await ensureTextureImage(alphaMap);
   const src = alphaMap.image;
-  const w = Math.min(1024, src.width || 512);
-  const h = Math.min(1024, src.height || 512);
+  const tileW = src.width || 512;
+  const tileH = src.height || 512;
+  const repeatX = Math.max(0.001, alphaMap.repeat?.x || 1);
+  const repeatY = Math.max(0.001, alphaMap.repeat?.y || 1);
+  const offsetX = alphaMap.offset?.x || 0;
+  const offsetY = alphaMap.offset?.y || 0;
+
+  const outAspect = (tileW * repeatX) / (tileH * repeatY);
+  let outW;
+  let outH;
+  if (outAspect >= 1) {
+    outW = maxSize;
+    outH = Math.max(32, Math.round(maxSize / outAspect));
+  } else {
+    outH = maxSize;
+    outW = Math.max(32, Math.round(maxSize * outAspect));
+  }
+
   const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
+  canvas.width = outW;
+  canvas.height = outH;
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(src, 0, 0, w, h);
-  const mask = ctx.getImageData(0, 0, w, h);
+  const cellW = outW / repeatX;
+  const cellH = outH / repeatY;
+  const cols = Math.ceil(repeatX + Math.abs(offsetX));
+  const rows = Math.ceil(repeatY + Math.abs(offsetY));
+  const startCol = -Math.floor(offsetX);
+  const startRow = -Math.floor(offsetY);
+
+  for (let row = startRow; row < startRow + rows; row += 1) {
+    for (let col = startCol; col < startCol + cols; col += 1) {
+      ctx.drawImage(
+        src,
+        (col + offsetX) * cellW,
+        outH - (row + 1 + offsetY) * cellH,
+        cellW,
+        cellH
+      );
+    }
+  }
+
+  const mask = ctx.getImageData(0, 0, outW, outH);
   const color = new THREE.Color(colorHex);
   const r = Math.round(color.r * 255);
   const g = Math.round(color.g * 255);
   const b = Math.round(color.b * 255);
-  const out = ctx.createImageData(w, h);
+  const out = ctx.createImageData(outW, outH);
   for (let i = 0; i < mask.data.length; i += 4) {
     const lum = mask.data[i];
     out.data[i] = r;
@@ -31,10 +86,10 @@ export async function bakeUsdzDiffuseMap(material, colorHex = '#b8bcc2') {
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = alphaMap.wrapS;
-  texture.wrapT = alphaMap.wrapT;
-  texture.repeat.copy(alphaMap.repeat);
-  texture.offset.copy(alphaMap.offset);
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.repeat.set(1, 1);
+  texture.offset.set(0, 0);
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
   texture.generateMipmaps = false;
@@ -50,7 +105,7 @@ async function ensureTextureImage(texture) {
   }
 }
 
-export async function createUsdzMaterial(source, { colorHex, metalness = 0.82, roughness = 0.34 } = {}) {
+export async function createUsdzMaterial(source, { colorHex, metalness = 0.82, roughness = 0.34, maxTextureSize = 1024 } = {}) {
   const mat = new THREE.MeshStandardMaterial({
     color: colorHex || '#b8bcc2',
     metalness,
@@ -61,7 +116,7 @@ export async function createUsdzMaterial(source, { colorHex, metalness = 0.82, r
     alphaTest: 0
   });
 
-  const baked = await bakeUsdzDiffuseMap(source, mat.color.getHexString());
+  const baked = await bakeUsdzDiffuseMap(source, mat.color.getHexString(), { maxSize: maxTextureSize });
   if (baked) {
     mat.map = baked;
     mat.transparent = true;

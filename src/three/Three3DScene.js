@@ -1436,12 +1436,13 @@ export class Three3DScene {
     face.position.set(0, height / 2, thickness / 2 + 0.0001);
     group.add(face);
 
-    group.position.y = -height / 2;
     group.userData.appearance = appearance;
-    return { group, appearance };
+    group.userData.innerW = innerW;
+    group.userData.innerH = innerH;
+    return { group, appearance, innerW, innerH };
   }
 
-  async prepareGroupForUsdz(group) {
+  async prepareGroupForUsdz(group, maxTextureSize = 1024) {
     const tasks = [];
     group.traverse((obj) => {
       if (!obj.isMesh || !obj.material) return;
@@ -1450,7 +1451,8 @@ export class Three3DScene {
       tasks.push(createUsdzMaterial(source, {
         colorHex: appearance.hex || (source.color?.getHexString?.() ? `#${source.color.getHexString()}` : '#b8bcc2'),
         metalness: source.metalness ?? appearance.metalness ?? 0.82,
-        roughness: source.roughness ?? appearance.roughness ?? 0.34
+        roughness: source.roughness ?? appearance.roughness ?? 0.34,
+        maxTextureSize
       }).then((mat) => {
         obj.material = mat;
       }));
@@ -1458,19 +1460,20 @@ export class Three3DScene {
     await Promise.all(tasks);
   }
 
-  async exportUSDZ() {
-    if (!this.model || !this.config) throw new Error('3D model is still loading');
+  async exportUSDZ(exportConfig = this.config) {
+    if (!this.model || !exportConfig) throw new Error('3D model is still loading');
     const exporter = new USDZExporter();
+    const maxTextureSize = this.compact ? 768 : 1024;
     const options = {
       quickLookCompatible: true,
-      maxTextureSize: this.compact ? 768 : 1024,
+      maxTextureSize,
       ar: {
         anchoring: { type: 'plane' },
         planeAnchoring: { alignment: 'vertical' }
       }
     };
     const arConfig = normalizeConfig({
-      ...this.config,
+      ...exportConfig,
       panelForm: 'flat',
       flangeDepth: 0,
       bendAngle: 0,
@@ -1479,8 +1482,9 @@ export class Three3DScene {
 
     try {
       const { group } = this.buildArSheetGroup(arConfig);
-      await this.prepareGroupForUsdz(group);
+      await this.prepareGroupForUsdz(group, maxTextureSize);
       const wrapper = new THREE.Group();
+      wrapper.name = 'AR_WRAPPER';
       wrapper.add(group);
       wrapper.scale.setScalar(this.scalePercent / 100);
       return await exporter.parseAsync(wrapper, options);
@@ -1490,7 +1494,6 @@ export class Three3DScene {
       const clone = this.model.clone(true);
       clone.traverse((obj) => { if (obj.isMesh && obj.material) obj.material = obj.material.clone(); });
       wrapper.add(clone);
-      wrapper.position.y = -(this.config.height / 1000) / 2;
       wrapper.scale.setScalar(this.scalePercent / 100);
       return exporter.parseAsync(wrapper, options);
     }

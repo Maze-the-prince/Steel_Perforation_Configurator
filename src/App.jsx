@@ -25,6 +25,7 @@ const SAVE_KEY = 'steel-configurator-saved';
 const PLATFORM = detectPlatform();
 const COMPACT = isCompactWeb();
 const AR_POSTER = `${import.meta.env.BASE_URL}assets/sample-logo.svg`;
+const USDZ_DEBOUNCE_MS = COMPACT ? 280 : 200;
 let didTrackView = false;
 
 function embedTargetOrigin() {
@@ -189,23 +190,28 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!PLATFORM.ios || !sceneReady || !sceneRef.current) return undefined;
+    if (!PLATFORM.ios || !sceneReady || !sceneRef.current || sceneBusy) return undefined;
     let cancelled = false;
-    sceneRef.current.exportUSDZ().then((bytes) => {
-      if (cancelled) return;
-      if (usdzUrlRef.current) URL.revokeObjectURL(usdzUrlRef.current);
-      const url = URL.createObjectURL(new Blob([bytes], { type: 'model/vnd.usdz+zip' }));
-      usdzUrlRef.current = url;
-      if (quickLookRef.current) {
-        quickLookRef.current.href = url;
-        quickLookRef.current.dataset.ready = '1';
-      }
-    }).catch((err) => {
-      console.error('USDZ export failed', err);
-      if (quickLookRef.current) quickLookRef.current.dataset.ready = '0';
-    });
-    return () => { cancelled = true; };
-  }, [sceneReady, usdzKey]);
+    const timer = window.setTimeout(() => {
+      sceneRef.current.exportUSDZ(config).then((bytes) => {
+        if (cancelled) return;
+        if (usdzUrlRef.current) URL.revokeObjectURL(usdzUrlRef.current);
+        const url = URL.createObjectURL(new Blob([bytes], { type: 'model/vnd.usdz+zip' }));
+        usdzUrlRef.current = url;
+        if (quickLookRef.current) {
+          quickLookRef.current.href = url;
+          quickLookRef.current.dataset.ready = '1';
+        }
+      }).catch((err) => {
+        console.error('USDZ export failed', err);
+        if (quickLookRef.current) quickLookRef.current.dataset.ready = '0';
+      });
+    }, USDZ_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [sceneReady, sceneBusy, usdzKey, config]);
 
   async function startAR() {
     if (!sceneRef.current) { setArHelp('Wait for the 3D panel to load, then tap View in AR again.'); return; }
