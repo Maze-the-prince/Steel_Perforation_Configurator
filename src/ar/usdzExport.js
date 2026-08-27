@@ -95,48 +95,76 @@ export function bakeSolidFaceUsdzMap(colorHex, innerWidthMm, innerHeightMm, { ma
   return canvasToUsdzTexture(canvas, { flipY });
 }
 
-/** Bake a high-resolution perforated map for the inner face plane only. */
-export async function bakeInnerFaceUsdzMap(material, config, innerWidthMm, innerHeightMm, colorHex, { maxSize = 4096, flipY = false } = {}) {
-  const alphaMap = material.alphaMap;
-  if (!alphaMap?.image) return null;
+function tilePatternToImageData(src, outW, outH, repeatX, repeatY) {
+  const canvas = document.createElement('canvas');
+  canvas.width = outW;
+  canvas.height = outH;
+  const ctx = canvas.getContext('2d');
+  tilePatternMask(ctx, src, outW, outH, repeatX, repeatY);
+  return ctx.getImageData(0, 0, outW, outH);
+}
 
-  await ensureTextureImage(alphaMap);
-  const src = alphaMap.image;
+/** Bake perforated + relief shading into one Quick Look–friendly RGBA map (opacityThreshold, not blending). */
+export async function bakeReliefFaceUsdzMap(material, config, innerWidthMm, innerHeightMm, colorHex, { maxSize = 4096, flipY = false, relief = 1 } = {}) {
   const { repeatX, repeatY } = usdzFaceRepeat(config, innerWidthMm, innerHeightMm);
   const { outW, outH } = innerFaceTextureSize(innerWidthMm, innerHeightMm, repeatX, repeatY, maxSize);
   const color = resolveColor(colorHex);
-  const r = Math.round(color.r * 255);
-  const g = Math.round(color.g * 255);
-  const b = Math.round(color.b * 255);
+  const baseR = color.r;
+  const baseG = color.g;
+  const baseB = color.b;
+  const pixelCount = outW * outH;
 
-  const maskCanvas = document.createElement('canvas');
-  maskCanvas.width = outW;
-  maskCanvas.height = outH;
-  const mctx = maskCanvas.getContext('2d');
-  tilePatternMask(mctx, src, outW, outH, repeatX, repeatY);
-  const mask = mctx.getImageData(0, 0, outW, outH);
+  let alphaData = null;
+  if (material.alphaMap?.image) {
+    await ensureTextureImage(material.alphaMap);
+    alphaData = tilePatternToImageData(material.alphaMap.image, outW, outH, repeatX, repeatY).data;
+  }
+
+  let bumpData = null;
+  if (material.bumpMap?.image) {
+    await ensureTextureImage(material.bumpMap);
+    bumpData = tilePatternToImageData(material.bumpMap.image, outW, outH, repeatX, repeatY).data;
+  }
+
   const rgbaCanvas = document.createElement('canvas');
   rgbaCanvas.width = outW;
   rgbaCanvas.height = outH;
   const ctx = rgbaCanvas.getContext('2d');
   const out = ctx.createImageData(outW, outH);
-  for (let i = 0; i < mask.data.length; i += 4) {
-    const lum = mask.data[i];
-    out.data[i] = r;
-    out.data[i + 1] = g;
-    out.data[i + 2] = b;
-    out.data[i + 3] = lum;
+  const shadeMin = 0.42;
+  const shadeRange = 0.58 * relief;
+
+  for (let i = 0, p = 0; p < pixelCount; p += 1, i += 4) {
+    const alpha = alphaData ? alphaData[i] : 255;
+    const bumpLum = bumpData ? bumpData[i] / 255 : 1;
+    const shade = bumpData ? shadeMin + shadeRange * bumpLum : 1;
+    const a = alpha / 255;
+    out.data[i] = Math.round(baseR * shade * a * 255);
+    out.data[i + 1] = Math.round(baseG * shade * a * 255);
+    out.data[i + 2] = Math.round(baseB * shade * a * 255);
+    out.data[i + 3] = alpha;
   }
   ctx.putImageData(out, 0, 0);
   return canvasToUsdzTexture(rgbaCanvas, { flipY });
 }
 
-/** Bake an AR face/back map — perforated or solid — sized to the inner cutout. */
+/** Bake a high-resolution perforated map for the inner face plane only. */
+export async function bakeInnerFaceUsdzMap(material, config, innerWidthMm, innerHeightMm, colorHex, { maxSize = 4096, flipY = false } = {}) {
+  return bakeReliefFaceUsdzMap(material, config, innerWidthMm, innerHeightMm, colorHex, { maxSize, flipY, relief: 0 });
+}
+
+/** Bake an AR face/back map — perforated, relief, or solid — sized to the inner cutout. */
 export async function bakeArFaceUsdzMap(sourceMat, config, colorHex, { maxSize = 4096, flipY = false } = {}) {
   const { innerWidthMm, innerHeightMm } = sheetInnerSizeMm(config.width, config.height, config.border);
   const hex = colorHex?.startsWith('#') ? colorHex : `#${colorHex || 'b8bcc2'}`;
-  if (sourceMat?.alphaMap) {
-    return bakeInnerFaceUsdzMap(sourceMat, config, innerWidthMm, innerHeightMm, hex, { maxSize, flipY });
+  const kind = PATTERNS[config.pattern]?.kind;
+  const formedKind = kind === 'trieur' || kind === 'embossed' || kind === 'bridge' || kind === 'perfocon';
+  if (sourceMat?.alphaMap || sourceMat?.bumpMap) {
+    return bakeReliefFaceUsdzMap(sourceMat, config, innerWidthMm, innerHeightMm, hex, {
+      maxSize,
+      flipY,
+      relief: formedKind ? 1.15 : 1
+    });
   }
   return bakeSolidFaceUsdzMap(hex, innerWidthMm, innerHeightMm, { maxSize, flipY });
 }

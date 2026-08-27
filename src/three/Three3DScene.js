@@ -210,10 +210,12 @@ function isExtrudedForm(kind) {
   return kind === 'trieur' || kind === 'embossed' || kind === 'bridge' || kind === 'perfocon';
 }
 
-function buildPatternMaps(config, maxAnisotropy = 4, { holeScale = 1, skipBump = false } = {}) {
+function buildPatternMaps(config, maxAnisotropy = 4, { holeScale = 1, skipBump = false, arRelief = false } = {}) {
   const c = normalizeConfig(config);
   const kind = PATTERNS[c.pattern]?.kind;
-  const formed = Boolean(PATTERNS[c.pattern]?.formed) && !skipBump && !isExtrudedForm(kind);
+  const extruded = isExtrudedForm(kind);
+  const formed = Boolean(PATTERNS[c.pattern]?.formed) && !skipBump && !extruded;
+  const relief = arRelief && extruded;
   const { tileW, tileH } = patternPeriod(c);
   const zoneW = Math.max(0.01, c.width - 2 * c.border);
   const zoneH = Math.max(0.01, c.height - 2 * c.border);
@@ -221,7 +223,7 @@ function buildPatternMaps(config, maxAnisotropy = 4, { holeScale = 1, skipBump =
   const repeatY = zoneH / tileH;
   const wrap = { repeatX, repeatY };
   const alphaCanvas = paintPatternTile(c, { holeScale, bump: false });
-  const bumpCanvas = formed ? paintPatternTile(c, { bump: true }) : null;
+  const bumpCanvas = (formed || relief) ? paintPatternTile(c, { bump: true }) : null;
   return {
     alphaMap: makeMaskTexture(alphaCanvas, maxAnisotropy, wrap),
     bumpMap: bumpCanvas ? makeMaskTexture(bumpCanvas, maxAnisotropy, { ...wrap, mipmaps: true }) : null,
@@ -248,6 +250,39 @@ function createSheetMaps(config, maxAnisotropy) {
     return maps;
   }
   return buildPatternMaps(c, maxAnisotropy);
+}
+
+/** Pattern maps for iOS Quick Look — relief bumps instead of 3D formed geometry. */
+function createArSheetMaps(config, maxAnisotropy) {
+  const c = normalizeConfig(config);
+  if (PATTERNS[c.pattern]?.conical) {
+    const cone = conicalProfile(c);
+    const maps = buildPatternMaps(c, maxAnisotropy, { holeScale: 1, skipBump: false, arRelief: true });
+    maps.backAlphaMap = buildPatternMaps(c, maxAnisotropy, { holeScale: cone.exit / cone.entrance, skipBump: true }).alphaMap;
+    return maps;
+  }
+  if (PATTERNS[c.pattern]?.kind === 'embossed') {
+    const maps = buildPatternMaps(c, maxAnisotropy, { holeScale: 0.48, skipBump: false, arRelief: true });
+    maps.backAlphaMap = maps.alphaMap;
+    return maps;
+  }
+  if (PATTERNS[c.pattern]?.kind === 'trieur') {
+    const maps = buildPatternMaps(c, maxAnisotropy, { holeScale: 0.72, skipBump: false, arRelief: true });
+    maps.backAlphaMap = buildPatternMaps(c, maxAnisotropy, { holeScale: 0.9, skipBump: true }).alphaMap;
+    return maps;
+  }
+  if (isExtrudedForm(PATTERNS[c.pattern]?.kind)) {
+    return buildPatternMaps(c, maxAnisotropy, { holeScale: 1, skipBump: false, arRelief: true });
+  }
+  return buildPatternMaps(c, maxAnisotropy);
+}
+
+function bindArPatternMaps(faceMat, backMat, maps, c) {
+  bindPatternMaps(faceMat, backMat, maps, c);
+  if (faceMat && isExtrudedForm(PATTERNS[c.pattern]?.kind) && maps.bumpMap) {
+    faceMat.bumpMap = maps.bumpMap;
+    faceMat.bumpScale = 0.024;
+  }
 }
 
 function bindPatternMaps(faceMat, backMat, maps, c) {
@@ -376,6 +411,7 @@ function addSheetSkins(group, faceMat, backMat, solidMat, width, height, thickne
     if (backMat) {
       const backGeo = new THREE.PlaneGeometry(innerW, arFaceH, 1, 1);
       backGeo.translate(0, arFaceH / 2, 0);
+      backGeo.rotateY(Math.PI);
       const back = new THREE.Mesh(backGeo, backMat);
       back.position.set(0, borderM, -z);
       back.name = 'AR_BACK';
@@ -485,36 +521,6 @@ function mergeIndexedGeometries(geos) {
   geo.setIndex(indices);
   geo.computeVertexNormals();
   return geo;
-}
-
-function expandInstancedMeshesForExport(root) {
-  const instancedMeshes = [];
-  root.traverse((obj) => {
-    if (obj.isInstancedMesh && obj.count > 0) instancedMeshes.push(obj);
-  });
-  instancedMeshes.forEach((instanced) => {
-    const parent = instanced.parent;
-    if (!parent) return;
-    const formed = new THREE.Group();
-    formed.name = 'AR_FORMED';
-    const matrix = new THREE.Matrix4();
-    const mat = instanced.material.clone();
-    mat.side = THREE.FrontSide;
-    mat.transparent = false;
-    mat.depthWrite = true;
-    const geo = instanced.geometry;
-    for (let i = 0; i < instanced.count; i += 1) {
-      instanced.getMatrixAt(i, matrix);
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.matrix.copy(matrix);
-      mesh.matrixAutoUpdate = false;
-      mesh.updateMatrix();
-      mesh.name = 'AR_FORMED';
-      formed.add(mesh);
-    }
-    parent.remove(instanced);
-    parent.add(formed);
-  });
 }
 
 function diamondPunchWalls(half, zFront, zBack) {
@@ -1438,7 +1444,7 @@ export class Three3DScene {
     const innerW = Math.max(0.0008, width - 2 * borderM);
     const innerH = Math.max(0.0008, height - 2 * borderM);
     const appearance = finishAppearance(c);
-    const maps = createSheetMaps(c, 4);
+    const maps = createArSheetMaps(c, 4);
     const group = new THREE.Group();
     group.name = 'AR_SHEET';
 
@@ -1450,19 +1456,11 @@ export class Three3DScene {
       transparent: false,
       side: THREE.DoubleSide
     });
-    bindPatternMaps(faceMat, null, maps, c);
+    bindArPatternMaps(faceMat, null, maps, c);
 
     const backMat = faceMat.clone();
     backMat.side = THREE.DoubleSide;
     bindPatternMaps(null, backMat, maps, c);
-
-    const patternKind = PATTERNS[c.pattern]?.kind;
-    if (isExtrudedForm(patternKind)) {
-      faceMat.alphaMap = null;
-      faceMat.alphaTest = 0;
-      faceMat.bumpMap = null;
-      faceMat.bumpScale = 0;
-    }
 
     const solidMat = new THREE.MeshStandardMaterial({
       color: appearance.hex,
@@ -1472,8 +1470,6 @@ export class Three3DScene {
     });
 
     addSheetSkins(group, faceMat, backMat, solidMat, width, height, thickness, { ...c, _arExport: true });
-    const formedGroup = addFormedFeatures(group, c, width, height, thickness, solidMat, { zLift: 0.0003 });
-    if (formedGroup) expandInstancedMeshesForExport(formedGroup);
 
     group.traverse((obj) => {
       if (!obj.isMesh) return;
@@ -1483,8 +1479,6 @@ export class Three3DScene {
       } else if (obj.geometry?.type === 'PlaneGeometry' && !obj.name) {
         obj.name = 'AR_FACE';
         obj.renderOrder = 1;
-      } else if (obj.name === 'AR_FORMED') {
-        obj.renderOrder = 3;
       }
     });
 
@@ -1511,26 +1505,13 @@ export class Three3DScene {
       if ((obj.name === 'AR_FACE' || obj.name === 'AR_BACK') && config && innerW > 0 && innerH > 0) {
         tasks.push(bakeArFaceUsdzMap(source, config, colorHex, { maxSize: maxTextureSize, flipY: false }).then((map) => {
           if (map) applyArFaceBleedUv(map, innerH, arFaceH);
-          const perforated = Boolean(source.alphaMap);
+          const perforated = Boolean(source.alphaMap || source.bumpMap);
           obj.material = new THREE.MeshStandardMaterial({
             color: colorHex,
             map: map || null,
             metalness: source.metalness ?? appearance.metalness ?? 0.82,
             roughness: source.roughness ?? appearance.roughness ?? 0.34,
             alphaTest: perforated ? 0.35 : 0,
-            transparent: false,
-            depthWrite: true,
-            side: THREE.DoubleSide
-          });
-        }));
-        return;
-      }
-      if (obj.name === 'AR_FORMED') {
-        tasks.push(Promise.resolve().then(() => {
-          obj.material = new THREE.MeshStandardMaterial({
-            color: colorHex,
-            metalness: Math.min(1, (source.metalness ?? appearance.metalness ?? 0.82) + 0.05),
-            roughness: Math.max(0.12, (source.roughness ?? appearance.roughness ?? 0.34) - 0.06),
             transparent: false,
             depthWrite: true,
             side: THREE.FrontSide
@@ -1590,13 +1571,8 @@ export class Three3DScene {
       return bytes;
     } catch (err) {
       if (exportGen !== this.exportGen || err?.message === 'stale-export') throw err;
-      console.warn('AR sheet export failed, using model clone fallback', err);
-      const wrapper = new THREE.Group();
-      const clone = this.model.clone(true);
-      clone.traverse((obj) => { if (obj.isMesh && obj.material) obj.material = obj.material.clone(); });
-      wrapper.add(clone);
-      wrapper.scale.setScalar(this.scalePercent / 100);
-      return exporter.parseAsync(wrapper, options);
+      console.warn('AR sheet export failed', err);
+      throw err;
     } finally {
       if (group) disposeObject(group);
     }
