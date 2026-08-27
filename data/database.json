@@ -4251,6 +4251,14 @@
       "payload": {
         "sku": "PERF-CRS-2T-R608-12P-ML"
       }
+    },
+    {
+      "id": "E-mtbuiev0-78b7c",
+      "createdAt": "2026-08-27T18:17:53.340Z",
+      "type": "view",
+      "payload": {
+        "sku": "PERF-CRS-2T-R608-12P-ML"
+      }
     }
   ],
   "codes": {
