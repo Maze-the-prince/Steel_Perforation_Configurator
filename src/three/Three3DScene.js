@@ -155,7 +155,7 @@ function drawBump(ctx, c, x, y, d, sx, sy) {
 
 const TILE_PX = 512;
 const HOLE_ALPHA_TEST = 0.5;
-const AR_FACE_BLEED_M = 0.0015;
+const AR_FACE_Y_NUDGE_M = 0.0006;
 const ZOOM_MIN = 0.12;
 const ZOOM_MAX = 4.6;
 
@@ -366,24 +366,16 @@ function addSheetSkins(group, faceMat, backMat, solidMat, width, height, thickne
   body.receiveShadow = true;
   group.add(body);
 
-  if (c._arExport) {
-    const faceH = innerH + AR_FACE_BLEED_M;
-    const faceGeo = new THREE.PlaneGeometry(innerW, faceH, 1, 1);
-    faceGeo.translate(0, faceH / 2, 0);
-    const face = new THREE.Mesh(faceGeo, faceMat);
-    face.position.set(0, borderM, z);
-    group.add(face);
-    return;
-  }
-
   const addFace = (mat, sign) => {
     const inner = new THREE.Mesh(new THREE.PlaneGeometry(innerW, innerH, 1, 1), mat);
-    inner.position.set(0, height / 2, sign * z);
+    const y = c._arExport && sign > 0 ? height / 2 + AR_FACE_Y_NUDGE_M : height / 2;
+    inner.position.set(0, y, sign * z);
     inner.castShadow = false;
     inner.receiveShadow = sign > 0;
     group.add(inner);
   };
   addFace(faceMat, 1);
+  if (c._arExport) return;
   if (backMat) addFace(backMat, -1);
 
   const outlineLines = new THREE.LineSegments(
@@ -1445,7 +1437,6 @@ export class Three3DScene {
     const { innerWidthMm, innerHeightMm } = sheetInnerSizeMm(config.width, config.height, config.border);
     const { repeatX, repeatY } = usdzFaceRepeat(config, innerWidthMm, innerHeightMm);
     const { outW, outH } = innerFaceTextureSize(innerWidthMm, innerHeightMm, repeatX, repeatY, maxTextureSize);
-    const faceHM = innerHM + AR_FACE_BLEED_M;
 
     const bakeMat = new THREE.MeshBasicMaterial({
       color: sourceMat.color.clone(),
@@ -1456,14 +1447,12 @@ export class Three3DScene {
     });
 
     const scene = new THREE.Scene();
-    const faceGeo = new THREE.PlaneGeometry(innerWM, faceHM);
-    faceGeo.translate(0, faceHM / 2, 0);
-    const mesh = new THREE.Mesh(faceGeo, bakeMat);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(innerWM, innerHM), bakeMat);
     scene.add(mesh);
 
-    const camera = new THREE.OrthographicCamera(-innerWM / 2, innerWM / 2, faceHM, 0, 0.01, 10);
-    camera.position.set(0, faceHM / 2, 1);
-    camera.lookAt(0, faceHM / 2, 0);
+    const camera = new THREE.OrthographicCamera(-innerWM / 2, innerWM / 2, innerHM / 2, -innerHM / 2, 0.01, 10);
+    camera.position.set(0, 0, 1);
+    camera.lookAt(0, 0, 0);
 
     const target = new THREE.WebGLRenderTarget(outW, outH, { format: THREE.RGBAFormat, type: THREE.UnsignedByteType });
     const renderer = this.renderer;
@@ -1489,22 +1478,12 @@ export class Three3DScene {
     canvas.height = outH;
     const ctx = canvas.getContext('2d');
     const imageData = ctx.createImageData(outW, outH);
-    for (let y = 0; y < outH; y += 1) {
-      for (let x = 0; x < outW; x += 1) {
-        const srcY = outH - 1 - y;
-        const srcI = (srcY * outW + x) * 4;
-        const dstI = (y * outW + x) * 4;
-        imageData.data[dstI] = pixels[srcI];
-        imageData.data[dstI + 1] = pixels[srcI + 1];
-        imageData.data[dstI + 2] = pixels[srcI + 2];
-        imageData.data[dstI + 3] = pixels[srcI + 3];
-      }
-    }
+    imageData.data.set(pixels);
     ctx.putImageData(imageData, 0, 0);
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
-    texture.flipY = false;
+    texture.flipY = true;
     texture.wrapS = THREE.ClampToEdgeWrapping;
     texture.wrapT = THREE.ClampToEdgeWrapping;
     texture.repeat.set(1, 1);
