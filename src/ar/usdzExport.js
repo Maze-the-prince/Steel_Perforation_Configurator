@@ -186,9 +186,16 @@ export function usdzExportFingerprint(config) {
   ].join('|');
 }
 
-/** Extra height on the AR face — keep 0 so the mesh matches the frame cutout. */
-export const AR_FACE_TOP_BLEED_RATIO = 0;
+/** How far the AR face extends upward under the top frame bar (fraction of border width). */
+export const AR_FACE_TOP_BLEED_BORDER_RATIO = 0.5;
 
-export function arFaceHeightM(innerHM) {
-  return innerHM * (1 + AR_FACE_TOP_BLEED_RATIO);
+/** Upward extension in metres — capped so the face tucks under the frame without overshooting. */
+export function arFaceTopBleedM(innerHM, borderMm = 0) {
+  const borderM = Math.max(0, borderMm) / 1000;
+  if (borderM <= 0) return innerHM * 0.004;
+  return Math.min(borderM * AR_FACE_TOP_BLEED_BORDER_RATIO, innerHM * 0.012);
+}
+
+export function arFaceHeightM(innerHM, borderMm = 0) {
+  return innerHM + arFaceTopBleedM(innerHM, borderMm);
 }
