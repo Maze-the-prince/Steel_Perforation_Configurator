@@ -4,7 +4,7 @@ import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
 import { XREstimatedLight } from 'three/examples/jsm/webxr/XREstimatedLight.js';
 import { conicalProfile, cornerTreatmentMm, decorativeOffsets, estimatedHoleCount, finishAppearance, forEachHole, normalizeConfig, PATTERNS, STAGGER_ROW } from '../state/config.js';
 import { bindPbrMaps, loadPbrMaps } from './pbrMaterials.js';
-import { createUsdzMaterial, innerFaceTextureSize, sheetInnerSizeMm, usdzExportFingerprint, usdzFaceRepeat, arFaceHeightM } from '../ar/usdzExport.js';
+import { createUsdzMaterial, innerFaceTextureSize, sheetInnerSizeMm, usdzExportFingerprint, usdzFaceRepeat } from '../ar/usdzExport.js';
 import { detectPlatform, isCompactWeb } from '../ar/detect.js';
 
 const _hitPos = new THREE.Vector3();
@@ -366,12 +366,20 @@ function addSheetSkins(group, faceMat, backMat, solidMat, width, height, thickne
   group.add(body);
 
   if (c._arExport) {
-    const arFaceH = arFaceHeightM(innerH);
-    const faceGeo = new THREE.PlaneGeometry(innerW, arFaceH, 1, 1);
-    faceGeo.translate(0, arFaceH / 2, 0);
+    const faceGeo = new THREE.PlaneGeometry(innerW, innerH, 1, 1);
+    faceGeo.translate(0, innerH / 2, 0);
     const face = new THREE.Mesh(faceGeo, faceMat);
     face.position.set(0, borderM, z);
+    face.name = 'AR_FACE';
     group.add(face);
+    if (backMat) {
+      const backGeo = new THREE.PlaneGeometry(innerW, innerH, 1, 1);
+      backGeo.translate(0, innerH / 2, 0);
+      const back = new THREE.Mesh(backGeo, backMat);
+      back.position.set(0, borderM, -z);
+      back.name = 'AR_BACK';
+      group.add(back);
+    }
     return;
   }
 
@@ -476,6 +484,40 @@ function mergeIndexedGeometries(geos) {
   geo.setIndex(indices);
   geo.computeVertexNormals();
   return geo;
+}
+
+function instancedMeshToMergedMesh(instanced) {
+  const count = instanced.count;
+  if (!count) return null;
+  const matrix = new THREE.Matrix4();
+  const geos = [];
+  for (let i = 0; i < count; i += 1) {
+    instanced.getMatrixAt(i, matrix);
+    const g = instanced.geometry.clone();
+    g.applyMatrix4(matrix);
+    geos.push(g);
+  }
+  const mergedGeo = mergeIndexedGeometries(geos);
+  const mat = instanced.material.clone();
+  mat.side = THREE.FrontSide;
+  return new THREE.Mesh(mergedGeo, mat);
+}
+
+function expandInstancedMeshesForExport(root) {
+  const instancedMeshes = [];
+  root.traverse((obj) => {
+    if (obj.isInstancedMesh && obj.count > 0) instancedMeshes.push(obj);
+  });
+  instancedMeshes.forEach((instanced) => {
+    const parent = instanced.parent;
+    if (!parent) return;
+    const merged = instancedMeshToMergedMesh(instanced);
+    if (!merged) return;
+    merged.name = 'AR_FORMED';
+    parent.remove(instanced);
+    instanced.geometry?.dispose?.();
+    parent.add(merged);
+  });
 }
 
 function diamondPunchWalls(half, zFront, zBack) {
@@ -1412,6 +1454,10 @@ export class Three3DScene {
     });
     bindPatternMaps(faceMat, null, maps, c);
 
+    const backMat = faceMat.clone();
+    backMat.side = THREE.DoubleSide;
+    bindPatternMaps(null, backMat, maps, c);
+
     const solidMat = new THREE.MeshStandardMaterial({
       color: appearance.hex,
       metalness: Math.min(1, appearance.metalness + 0.06),
@@ -1419,16 +1465,20 @@ export class Three3DScene {
       side: THREE.FrontSide
     });
 
-    addSheetSkins(group, faceMat, null, solidMat, width, height, thickness, { ...c, _arExport: true });
+    addSheetSkins(group, faceMat, backMat, solidMat, width, height, thickness, { ...c, _arExport: true });
+    const formedGroup = addFormedFeatures(group, c, width, height, thickness, solidMat);
+    if (formedGroup) expandInstancedMeshesForExport(formedGroup);
 
     group.traverse((obj) => {
       if (!obj.isMesh) return;
-      if (obj.geometry?.type === 'PlaneGeometry') {
-        obj.name = 'AR_FACE';
-        obj.renderOrder = 1;
-      } else if (obj.geometry?.type === 'ExtrudeGeometry') {
+      if (obj.geometry?.type === 'ExtrudeGeometry') {
         obj.name = 'AR_FRAME';
         obj.renderOrder = 2;
+      } else if (obj.geometry?.type === 'PlaneGeometry' && !obj.name) {
+        obj.name = 'AR_FACE';
+        obj.renderOrder = 1;
+      } else if (obj.name === 'AR_FORMED') {
+        obj.renderOrder = 3;
       }
     });
 
@@ -1437,7 +1487,6 @@ export class Three3DScene {
     group.userData.exportFingerprint = usdzExportFingerprint(c);
     group.userData.innerW = innerW;
     group.userData.innerH = innerH;
-    group.userData.arFaceH = arFaceHeightM(innerH);
     return { group, appearance, innerW, innerH };
   }
 
@@ -1520,13 +1569,12 @@ export class Three3DScene {
     const config = group.userData.arConfig || null;
     const innerW = group.userData.innerW || 0;
     const innerH = group.userData.innerH || 0;
-    const arFaceH = group.userData.arFaceH || innerH;
     const tasks = [];
     group.traverse((obj) => {
       if (!obj.isMesh || !obj.material) return;
       const source = obj.material;
-      if (obj.name === 'AR_FACE' && config && innerW > 0 && arFaceH > 0) {
-        tasks.push(this.bakeArFaceTexture(source, innerW, arFaceH, config, maxTextureSize).then((map) => {
+      if ((obj.name === 'AR_FACE' || obj.name === 'AR_BACK') && config && innerW > 0 && innerH > 0) {
+        tasks.push(this.bakeArFaceTexture(source, innerW, innerH, config, maxTextureSize).then((map) => {
           obj.material = new THREE.MeshStandardMaterial({
             color: colorHex,
             map,

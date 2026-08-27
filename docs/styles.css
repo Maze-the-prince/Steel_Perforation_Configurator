@@ -127,6 +127,7 @@ a { color: inherit; }
   transition: none; touch-action: manipulation;
 }
 .ar-link { position: relative; text-decoration: none; }
+.ar-link.is-pending { opacity: 0.72; pointer-events: none; }
 .ar-icon { width: 1px; height: 1px; position: absolute; opacity: 0; overflow: hidden; pointer-events: none; }
 .nav-cube {
   position: absolute; z-index: 5; left: 12px; bottom: 12px;

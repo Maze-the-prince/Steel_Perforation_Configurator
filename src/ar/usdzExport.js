@@ -186,8 +186,8 @@ export function usdzExportFingerprint(config) {
   ].join('|');
 }
 
-/** Extra height on the AR face so Quick Look fills the top frame edge. */
-export const AR_FACE_TOP_BLEED_RATIO = 0.05;
+/** Extra height on the AR face — keep 0 so the mesh matches the frame cutout. */
+export const AR_FACE_TOP_BLEED_RATIO = 0;
 
 export function arFaceHeightM(innerHM) {
   return innerHM * (1 + AR_FACE_TOP_BLEED_RATIO);
