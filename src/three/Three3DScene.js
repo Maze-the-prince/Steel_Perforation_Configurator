@@ -4,7 +4,7 @@ import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
 import { XREstimatedLight } from 'three/examples/jsm/webxr/XREstimatedLight.js';
 import { conicalProfile, cornerTreatmentMm, decorativeOffsets, estimatedHoleCount, finishAppearance, forEachHole, normalizeConfig, PATTERNS, STAGGER_ROW } from '../state/config.js';
 import { bindPbrMaps, loadPbrMaps } from './pbrMaterials.js';
-import { createUsdzMaterial, sheetInnerSizeMm, usdzExportFingerprint } from '../ar/usdzExport.js';
+import { createUsdzMaterial, innerFaceTextureSize, sheetInnerSizeMm, usdzExportFingerprint, usdzFaceRepeat } from '../ar/usdzExport.js';
 import { detectPlatform, isCompactWeb } from '../ar/detect.js';
 
 const _hitPos = new THREE.Vector3();
@@ -366,8 +366,10 @@ function addSheetSkins(group, faceMat, backMat, solidMat, width, height, thickne
   group.add(body);
 
   if (c._arExport) {
-    const face = new THREE.Mesh(new THREE.PlaneGeometry(innerW, innerH, 1, 1), faceMat);
-    face.position.set(0, height / 2, z);
+    const faceGeo = new THREE.PlaneGeometry(innerW, innerH, 1, 1);
+    faceGeo.translate(0, innerH / 2, 0);
+    const face = new THREE.Mesh(faceGeo, faceMat);
+    face.position.set(0, borderM, z);
     group.add(face);
     return;
   }
@@ -1437,27 +1439,109 @@ export class Three3DScene {
     return { group, appearance, innerW, innerH };
   }
 
+  async bakeArFaceTexture(sourceMat, innerWM, innerHM, config, maxTextureSize = 4096) {
+    const { innerWidthMm, innerHeightMm } = sheetInnerSizeMm(config.width, config.height, config.border);
+    const { repeatX, repeatY } = usdzFaceRepeat(config, innerWidthMm, innerHeightMm);
+    const { outW, outH } = innerFaceTextureSize(innerWidthMm, innerHeightMm, repeatX, repeatY, maxTextureSize);
+
+    const bakeMat = new THREE.MeshBasicMaterial({
+      color: sourceMat.color.clone(),
+      alphaMap: sourceMat.alphaMap,
+      alphaTest: sourceMat.alphaTest || HOLE_ALPHA_TEST,
+      transparent: false,
+      side: THREE.FrontSide
+    });
+
+    const scene = new THREE.Scene();
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(innerWM, innerHM), bakeMat);
+    scene.add(mesh);
+
+    const camera = new THREE.OrthographicCamera(-innerWM / 2, innerWM / 2, innerHM / 2, -innerHM / 2, 0.01, 10);
+    camera.position.set(0, 0, 1);
+    camera.lookAt(0, 0, 0);
+
+    const target = new THREE.WebGLRenderTarget(outW, outH, { format: THREE.RGBAFormat, type: THREE.UnsignedByteType });
+    const renderer = this.renderer;
+    const prevTarget = renderer.getRenderTarget();
+    const prevClearColor = new THREE.Color();
+    renderer.getClearColor(prevClearColor);
+    const prevClearAlpha = renderer.getClearAlpha();
+
+    renderer.setRenderTarget(target);
+    renderer.setClearColor(0x000000, 0);
+    renderer.clear();
+    renderer.render(scene, camera);
+
+    const pixels = new Uint8Array(outW * outH * 4);
+    renderer.readRenderTargetPixels(target, 0, 0, outW, outH, pixels);
+    renderer.setRenderTarget(prevTarget);
+    renderer.setClearColor(prevClearColor, prevClearAlpha);
+    bakeMat.dispose();
+    target.dispose();
+
+    const canvas = document.createElement('canvas');
+    canvas.width = outW;
+    canvas.height = outH;
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(outW, outH);
+    for (let y = 0; y < outH; y += 1) {
+      for (let x = 0; x < outW; x += 1) {
+        const srcY = outH - 1 - y;
+        const srcI = (srcY * outW + x) * 4;
+        const dstI = (y * outW + x) * 4;
+        imageData.data[dstI] = pixels[srcI];
+        imageData.data[dstI + 1] = pixels[srcI + 1];
+        imageData.data[dstI + 2] = pixels[srcI + 2];
+        imageData.data[dstI + 3] = pixels[srcI + 3];
+      }
+    }
+    ctx.putImageData(imageData, 0, 0);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.flipY = false;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.repeat.set(1, 1);
+    texture.offset.set(0, 0);
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    texture.needsUpdate = true;
+    return texture;
+  }
+
   async prepareGroupForUsdz(group, maxTextureSize = 4096) {
     const appearance = group.userData.appearance || {};
     const colorHex = appearance.hex || '#b8bcc2';
     const config = group.userData.arConfig || null;
-    const { innerWidthMm, innerHeightMm } = config
-      ? sheetInnerSizeMm(config.width, config.height, config.border)
-      : { innerWidthMm: 0, innerHeightMm: 0 };
+    const innerW = group.userData.innerW || 0;
+    const innerH = group.userData.innerH || 0;
     const tasks = [];
     group.traverse((obj) => {
       if (!obj.isMesh || !obj.material) return;
       const source = obj.material;
-      const isFace = obj.name === 'AR_FACE';
+      if (obj.name === 'AR_FACE' && config && innerW > 0 && innerH > 0) {
+        tasks.push(this.bakeArFaceTexture(source, innerW, innerH, config, maxTextureSize).then((map) => {
+          obj.material = new THREE.MeshStandardMaterial({
+            color: colorHex,
+            map,
+            metalness: source.metalness ?? appearance.metalness ?? 0.82,
+            roughness: source.roughness ?? appearance.roughness ?? 0.34,
+            alphaTest: 0.35,
+            transparent: false,
+            depthWrite: true,
+            side: THREE.DoubleSide
+          });
+        }));
+        return;
+      }
       tasks.push(createUsdzMaterial(source, {
         colorHex,
         metalness: source.metalness ?? appearance.metalness ?? 0.82,
         roughness: source.roughness ?? appearance.roughness ?? 0.34,
         maxTextureSize,
-        perforated: isFace,
-        config: isFace ? config : null,
-        innerWidthMm: isFace ? innerWidthMm : 0,
-        innerHeightMm: isFace ? innerHeightMm : 0
+        perforated: false
       }).then((mat) => {
         obj.material = mat;
       }));
