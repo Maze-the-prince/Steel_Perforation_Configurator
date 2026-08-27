@@ -59,10 +59,10 @@ function tilePatternMask(ctx, src, outW, outH, repeatX, repeatY) {
   }
 }
 
-function canvasToUsdzTexture(canvas) {
+function canvasToUsdzTexture(canvas, { flipY = false } = {}) {
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.flipY = true;
+  texture.flipY = flipY;
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
   texture.repeat.set(1, 1);
@@ -74,8 +74,29 @@ function canvasToUsdzTexture(canvas) {
   return texture;
 }
 
+/** Map a full-inner bake onto an AR face plane that extends slightly above the frame. */
+export function applyArFaceBleedUv(texture, innerHM, arFaceHM) {
+  if (!texture || !(arFaceHM > innerHM + 1e-6)) return texture;
+  texture.repeat.set(1, innerHM / arFaceHM);
+  texture.offset.set(0, 0);
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
+}
+
+export function bakeSolidFaceUsdzMap(colorHex, innerWidthMm, innerHeightMm, { maxSize = 4096, flipY = false } = {}) {
+  const { outW, outH } = innerFaceTextureSize(innerWidthMm, innerHeightMm, 1, 1, maxSize);
+  const color = resolveColor(colorHex);
+  const canvas = document.createElement('canvas');
+  canvas.width = outW;
+  canvas.height = outH;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = `rgb(${Math.round(color.r * 255)},${Math.round(color.g * 255)},${Math.round(color.b * 255)})`;
+  ctx.fillRect(0, 0, outW, outH);
+  return canvasToUsdzTexture(canvas, { flipY });
+}
+
 /** Bake a high-resolution perforated map for the inner face plane only. */
-export async function bakeInnerFaceUsdzMap(material, config, innerWidthMm, innerHeightMm, colorHex, { maxSize = 4096 } = {}) {
+export async function bakeInnerFaceUsdzMap(material, config, innerWidthMm, innerHeightMm, colorHex, { maxSize = 4096, flipY = false } = {}) {
   const alphaMap = material.alphaMap;
   if (!alphaMap?.image) return null;
 
@@ -107,7 +128,17 @@ export async function bakeInnerFaceUsdzMap(material, config, innerWidthMm, inner
     out.data[i + 3] = lum;
   }
   ctx.putImageData(out, 0, 0);
-  return canvasToUsdzTexture(rgbaCanvas);
+  return canvasToUsdzTexture(rgbaCanvas, { flipY });
+}
+
+/** Bake an AR face/back map — perforated or solid — sized to the inner cutout. */
+export async function bakeArFaceUsdzMap(sourceMat, config, colorHex, { maxSize = 4096, flipY = false } = {}) {
+  const { innerWidthMm, innerHeightMm } = sheetInnerSizeMm(config.width, config.height, config.border);
+  const hex = colorHex?.startsWith('#') ? colorHex : `#${colorHex || 'b8bcc2'}`;
+  if (sourceMat?.alphaMap) {
+    return bakeInnerFaceUsdzMap(sourceMat, config, innerWidthMm, innerHeightMm, hex, { maxSize, flipY });
+  }
+  return bakeSolidFaceUsdzMap(hex, innerWidthMm, innerHeightMm, { maxSize, flipY });
 }
 
 async function ensureTextureImage(texture) {

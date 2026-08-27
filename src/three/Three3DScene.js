@@ -4,7 +4,7 @@ import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
 import { XREstimatedLight } from 'three/examples/jsm/webxr/XREstimatedLight.js';
 import { conicalProfile, cornerTreatmentMm, decorativeOffsets, estimatedHoleCount, finishAppearance, forEachHole, normalizeConfig, PATTERNS, STAGGER_ROW } from '../state/config.js';
 import { bindPbrMaps, loadPbrMaps } from './pbrMaterials.js';
-import { createUsdzMaterial, innerFaceTextureSize, sheetInnerSizeMm, usdzExportFingerprint, usdzFaceRepeat, arFaceHeightM } from '../ar/usdzExport.js';
+import { createUsdzMaterial, usdzExportFingerprint, arFaceHeightM, bakeArFaceUsdzMap, applyArFaceBleedUv } from '../ar/usdzExport.js';
 import { detectPlatform, isCompactWeb } from '../ar/detect.js';
 
 const _hitPos = new THREE.Vector3();
@@ -1534,79 +1534,6 @@ export class Three3DScene {
     return { group, appearance, innerW, innerH };
   }
 
-  async bakeArFaceTexture(sourceMat, innerWM, faceHM, config, maxTextureSize = 4096) {
-    const { innerWidthMm, innerHeightMm } = sheetInnerSizeMm(config.width, config.height, config.border);
-    const { repeatX, repeatY } = usdzFaceRepeat(config, innerWidthMm, innerHeightMm);
-    const faceHeightMm = faceHM * 1000;
-    const { outW, outH } = innerFaceTextureSize(innerWidthMm, faceHeightMm, repeatX, repeatY, maxTextureSize);
-
-    const bakeMat = new THREE.MeshBasicMaterial({
-      color: sourceMat.color.clone(),
-      alphaMap: sourceMat.alphaMap,
-      alphaTest: sourceMat.alphaTest || HOLE_ALPHA_TEST,
-      transparent: false,
-      side: THREE.FrontSide
-    });
-
-    const scene = new THREE.Scene();
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(innerWM, faceHM), bakeMat);
-    scene.add(mesh);
-
-    const camera = new THREE.OrthographicCamera(-innerWM / 2, innerWM / 2, faceHM / 2, -faceHM / 2, 0.01, 10);
-    camera.position.set(0, 0, 1);
-    camera.lookAt(0, 0, 0);
-
-    const target = new THREE.WebGLRenderTarget(outW, outH, { format: THREE.RGBAFormat, type: THREE.UnsignedByteType });
-    const renderer = this.renderer;
-    const prevTarget = renderer.getRenderTarget();
-    const prevClearColor = new THREE.Color();
-    renderer.getClearColor(prevClearColor);
-    const prevClearAlpha = renderer.getClearAlpha();
-
-    renderer.setRenderTarget(target);
-    renderer.setClearColor(0x000000, 0);
-    renderer.clear();
-    renderer.render(scene, camera);
-
-    const pixels = new Uint8Array(outW * outH * 4);
-    renderer.readRenderTargetPixels(target, 0, 0, outW, outH, pixels);
-    renderer.setRenderTarget(prevTarget);
-    renderer.setClearColor(prevClearColor, prevClearAlpha);
-    bakeMat.dispose();
-    target.dispose();
-
-    const canvas = document.createElement('canvas');
-    canvas.width = outW;
-    canvas.height = outH;
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.createImageData(outW, outH);
-    for (let y = 0; y < outH; y += 1) {
-      for (let x = 0; x < outW; x += 1) {
-        const srcY = outH - 1 - y;
-        const srcI = (srcY * outW + x) * 4;
-        const dstI = (y * outW + x) * 4;
-        imageData.data[dstI] = pixels[srcI];
-        imageData.data[dstI + 1] = pixels[srcI + 1];
-        imageData.data[dstI + 2] = pixels[srcI + 2];
-        imageData.data[dstI + 3] = pixels[srcI + 3];
-      }
-    }
-    ctx.putImageData(imageData, 0, 0);
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.flipY = false;
-    texture.wrapS = THREE.ClampToEdgeWrapping;
-    texture.wrapT = THREE.ClampToEdgeWrapping;
-    texture.repeat.set(1, 1);
-    texture.offset.set(0, 0);
-    texture.minFilter = THREE.LinearFilter;
-    texture.magFilter = THREE.LinearFilter;
-    texture.generateMipmaps = false;
-    texture.needsUpdate = true;
-    return texture;
-  }
-
   async prepareGroupForUsdz(group, maxTextureSize = 4096) {
     const appearance = group.userData.appearance || {};
     const colorHex = appearance.hex || '#b8bcc2';
@@ -1618,14 +1545,16 @@ export class Three3DScene {
     group.traverse((obj) => {
       if (!obj.isMesh || !obj.material) return;
       const source = obj.material;
-      if ((obj.name === 'AR_FACE' || obj.name === 'AR_BACK') && config && innerW > 0 && arFaceH > 0) {
-        tasks.push(this.bakeArFaceTexture(source, innerW, arFaceH, config, maxTextureSize).then((map) => {
+      if ((obj.name === 'AR_FACE' || obj.name === 'AR_BACK') && config && innerW > 0 && innerH > 0) {
+        tasks.push(bakeArFaceUsdzMap(source, config, colorHex, { maxSize: maxTextureSize, flipY: false }).then((map) => {
+          if (map) applyArFaceBleedUv(map, innerH, arFaceH);
+          const perforated = Boolean(source.alphaMap);
           obj.material = new THREE.MeshStandardMaterial({
             color: colorHex,
-            map,
+            map: map || null,
             metalness: source.metalness ?? appearance.metalness ?? 0.82,
             roughness: source.roughness ?? appearance.roughness ?? 0.34,
-            alphaTest: 0.35,
+            alphaTest: perforated ? 0.35 : 0,
             transparent: false,
             depthWrite: true,
             side: THREE.DoubleSide
