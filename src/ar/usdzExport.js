@@ -22,7 +22,12 @@ export function usdzFaceRepeat(config, innerWidthMm, innerHeightMm) {
 }
 
 /** Bake alphaMap holes into a single tiled RGBA map that Quick Look can render. */
-export async function bakeUsdzDiffuseMap(material, colorHex = '#b8bcc2', { maxSize = 1024 } = {}) {
+export async function bakeUsdzDiffuseMap(material, colorHex = '#b8bcc2', {
+  maxSize = 1024,
+  config = null,
+  innerWidthMm = 0,
+  innerHeightMm = 0
+} = {}) {
   const alphaMap = material.alphaMap;
   if (!alphaMap?.image) return null;
 
@@ -30,10 +35,14 @@ export async function bakeUsdzDiffuseMap(material, colorHex = '#b8bcc2', { maxSi
   const src = alphaMap.image;
   const tileW = src.width || 512;
   const tileH = src.height || 512;
-  const repeatX = Math.max(0.001, alphaMap.repeat?.x || 1);
-  const repeatY = Math.max(0.001, alphaMap.repeat?.y || 1);
-  const offsetX = alphaMap.offset?.x || 0;
-  const offsetY = alphaMap.offset?.y || 0;
+  let repeatX;
+  let repeatY;
+  if (config && innerWidthMm > 0 && innerHeightMm > 0) {
+    ({ repeatX, repeatY } = usdzFaceRepeat(config, innerWidthMm, innerHeightMm));
+  } else {
+    repeatX = Math.max(0.001, alphaMap.repeat?.x || 1);
+    repeatY = Math.max(0.001, alphaMap.repeat?.y || 1);
+  }
 
   const outAspect = (tileW * repeatX) / (tileH * repeatY);
   let outW;
@@ -54,20 +63,12 @@ export async function bakeUsdzDiffuseMap(material, colorHex = '#b8bcc2', { maxSi
   ctx.fillRect(0, 0, outW, outH);
   const cellW = outW / repeatX;
   const cellH = outH / repeatY;
-  const cols = Math.ceil(repeatX + Math.abs(offsetX));
-  const rows = Math.ceil(repeatY + Math.abs(offsetY));
-  const startCol = -Math.floor(offsetX);
-  const startRow = -Math.floor(offsetY);
+  const cols = Math.ceil(repeatX);
+  const rows = Math.ceil(repeatY);
 
-  for (let row = startRow; row < startRow + rows; row += 1) {
-    for (let col = startCol; col < startCol + cols; col += 1) {
-      ctx.drawImage(
-        src,
-        (col + offsetX) * cellW,
-        outH - (row + 1 + offsetY) * cellH,
-        cellW,
-        cellH
-      );
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      ctx.drawImage(src, col * cellW, row * cellH, cellW, cellH);
     }
   }
 
@@ -88,6 +89,7 @@ export async function bakeUsdzDiffuseMap(material, colorHex = '#b8bcc2', { maxSi
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
+  texture.flipY = true;
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
   texture.repeat.set(1, 1);
@@ -112,7 +114,10 @@ export async function createUsdzMaterial(source, {
   metalness = 0.82,
   roughness = 0.34,
   maxTextureSize = 1024,
-  perforated = false
+  perforated = false,
+  config = null,
+  innerWidthMm = 0,
+  innerHeightMm = 0
 } = {}) {
   const hex = colorHex?.startsWith('#') ? colorHex : `#${colorHex || 'b8bcc2'}`;
   const mat = new THREE.MeshStandardMaterial({
@@ -126,7 +131,12 @@ export async function createUsdzMaterial(source, {
   });
 
   const baked = perforated
-    ? await bakeUsdzDiffuseMap(source, hex, { maxSize: maxTextureSize })
+    ? await bakeUsdzDiffuseMap(source, hex, {
+      maxSize: maxTextureSize,
+      config,
+      innerWidthMm,
+      innerHeightMm
+    })
     : null;
   if (baked) {
     mat.map = baked;

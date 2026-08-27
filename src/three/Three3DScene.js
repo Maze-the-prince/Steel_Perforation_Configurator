@@ -1411,46 +1411,35 @@ export class Three3DScene {
       side: THREE.FrontSide
     });
 
-    const outline = sheetOutlineShape(width, height, c);
-    if (borderM > 0.00025 && innerW > 0.001 && innerH > 0.001) {
-      const hole = new THREE.Path();
-      const hw = innerW / 2;
-      const y0 = borderM;
-      hole.moveTo(-hw, y0);
-      hole.lineTo(-hw, y0 + innerH);
-      hole.lineTo(hw, y0 + innerH);
-      hole.lineTo(hw, y0);
-      hole.closePath();
-      outline.holes.push(hole);
-    }
+    addSheetSkins(group, faceMat, null, solidMat, width, height, thickness, { ...c, _arExport: true });
 
-    const frameGeo = new THREE.ExtrudeGeometry(outline, {
-      depth: thickness,
-      bevelEnabled: false,
-      curveSegments: c.corner === 'radius' ? 14 : 1
+    group.traverse((obj) => {
+      if (!obj.isMesh) return;
+      if (obj.geometry?.type === 'PlaneGeometry') {
+        obj.name = 'AR_FACE';
+        obj.position.z += 0.002;
+        obj.renderOrder = 2;
+      } else if (obj.geometry?.type === 'ExtrudeGeometry') {
+        obj.name = 'AR_FRAME';
+      }
     });
-    frameGeo.translate(0, 0, -thickness / 2);
-    const frame = new THREE.Mesh(frameGeo, solidMat);
-    frame.name = 'AR_FRAME';
-    group.add(frame);
-
-    const face = new THREE.Mesh(new THREE.PlaneGeometry(innerW, innerH), faceMat);
-    face.name = 'AR_FACE';
-    face.position.set(0, borderM + innerH / 2, thickness / 2 + 0.004);
-    face.renderOrder = 2;
-    group.add(face);
 
     group.rotation.x = -Math.PI / 2;
     group.userData.appearance = appearance;
+    group.userData.arConfig = c;
     group.userData.innerW = innerW;
     group.userData.innerH = innerH;
-    group.userData.pattern = c.pattern;
+    group.userData.innerWidthMm = innerW * 1000;
+    group.userData.innerHeightMm = innerH * 1000;
     return { group, appearance, innerW, innerH };
   }
 
   async prepareGroupForUsdz(group, maxTextureSize = 1024) {
     const appearance = group.userData.appearance || {};
     const colorHex = appearance.hex || '#b8bcc2';
+    const config = group.userData.arConfig || null;
+    const innerWidthMm = group.userData.innerWidthMm || 0;
+    const innerHeightMm = group.userData.innerHeightMm || 0;
     const tasks = [];
     group.traverse((obj) => {
       if (!obj.isMesh || !obj.material) return;
@@ -1461,7 +1450,10 @@ export class Three3DScene {
         metalness: source.metalness ?? appearance.metalness ?? 0.82,
         roughness: source.roughness ?? appearance.roughness ?? 0.34,
         maxTextureSize,
-        perforated: isFace
+        perforated: isFace,
+        config: isFace ? config : null,
+        innerWidthMm: isFace ? innerWidthMm : 0,
+        innerHeightMm: isFace ? innerHeightMm : 0
       }).then((mat) => {
         obj.material = mat;
       }));
