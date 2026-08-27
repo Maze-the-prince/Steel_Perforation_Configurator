@@ -16,12 +16,14 @@ export function detectPlatform() {
   const android = /Android/i.test(ua);
   const safari = ios && /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua);
   const secure = Boolean(window.isSecureContext);
+  const touchTablet = ios || (navigator.maxTouchPoints > 1 && !android && !/Mobile/i.test(ua));
   let system = 'none';
   if (ios) system = 'quicklook';
   else if (android) system = 'webxr';
   return {
     ios,
     android,
+    touchTablet,
     desktop: !ios && !android,
     safari,
     secure,

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import { Viewer } from './components/Viewer.jsx';
 import { PatternPreview } from './components/PatternPreview.jsx';
 import { AR_DEVICE_HELP, detectPlatform, friendlyArError, immersiveArAvailable, isCompactWeb } from './ar/detect.js';
-import { createUsdzBlobUrl, launchQuickLook } from './ar/usdzExport.js';
+import { createUsdzBlobUrl } from './ar/usdzExport.js';
 import {
   AD_LINE, CONE_INCLUDED_OPTIONS, CORNER_OPTIONS, FINISHES, FINISH_COLORS, FINISH_COLOR_ORDER, FINISH_COLOR_PREVIEW,
   MATERIALS, MM_PER_IN, PANEL_FORMS, PATTERN_DEFAULTS, PATTERN_GROUPS, PATTERNS,
@@ -122,6 +122,19 @@ export function App() {
   }, []);
 
   useEffect(() => { postToHost({ type: 'configurationChanged', configuration: config, sku }); }, [config, sku]);
+
+  useEffect(() => {
+    document.body.classList.toggle('is-touch-tablet', PLATFORM.touchTablet || PLATFORM.ios);
+    return () => document.body.classList.remove('is-touch-tablet');
+  }, []);
+
+  useEffect(() => {
+    Object.values(MATERIALS).forEach((item) => {
+      const img = new Image();
+      img.decoding = 'async';
+      img.src = item.cardImage;
+    });
+  }, []);
 
   useEffect(() => {
     if (didTrackView) return undefined;
@@ -484,7 +497,15 @@ export function App() {
                       onClick={() => dispatch({ type: 'set', key: 'material', value: key })}
                     >
                       <div className="material-preview">
-                        <img src={item.cardImage} alt="" />
+                        <img
+                          src={item.cardImage}
+                          alt=""
+                          width={480}
+                          height={240}
+                          loading={config.material === key ? 'eager' : 'lazy'}
+                          decoding="async"
+                          fetchPriority={config.material === key ? 'high' : 'low'}
+                        />
                         {config.material === key && <span className="material-check" aria-hidden="true">✓</span>}
                       </div>
                       <div className="material-info">
@@ -743,14 +764,12 @@ function ArButton({ usdzHref, onLaunch, onHelp }) {
       <a
         className="btn btn-outline"
         rel="ar"
-        href={usdzHref ? `${usdzHref}#` : '#ar'}
+        href={usdzHref || '#ar'}
         onClick={(event) => {
-          event.preventDefault();
           if (!usdzHref) {
+            event.preventDefault();
             onHelp('Preparing the AR detail sample. Wait a moment, then tap View in AR again.');
-            return;
           }
-          launchQuickLook(usdzHref);
         }}
       >
         View in AR

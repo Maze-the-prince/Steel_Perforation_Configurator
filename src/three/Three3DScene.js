@@ -258,9 +258,11 @@ function bindPatternMaps(faceMat, backMat, maps, c) {
   const cutSkin = through || kind === 'trieur';
   const faceAlpha = cutSkin ? maps.alphaMap : null;
   const backAlpha = cutSkin ? (maps.backAlphaMap || maps.alphaMap) : null;
+  const iosAlpha = typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
   if (faceMat) {
     faceMat.alphaMap = faceAlpha;
     faceMat.alphaTest = cutSkin ? HOLE_ALPHA_TEST : 0;
+    faceMat.transparent = Boolean(cutSkin && iosAlpha);
     faceMat.bumpMap = maps.bumpMap;
     faceMat.bumpScale = formed ? 0.016 : 0;
     faceMat.needsUpdate = true;
@@ -268,6 +270,7 @@ function bindPatternMaps(faceMat, backMat, maps, c) {
   if (backMat) {
     backMat.alphaMap = backAlpha;
     backMat.alphaTest = cutSkin ? HOLE_ALPHA_TEST : 0;
+    backMat.transparent = Boolean(cutSkin && iosAlpha);
     backMat.bumpMap = null;
     backMat.bumpScale = 0;
     backMat.needsUpdate = true;
@@ -750,10 +753,12 @@ export class Three3DScene {
     this.maxAnisotropy = 4;
     this.dimHud = null;
     this.compact = isCompactWeb() || detectPlatform().ios;
-    this.pixelRatioCap = this.compact ? Math.min(devicePixelRatio || 1, 1.15) : Math.min(devicePixelRatio || 1, 1.5);
+    this.iosRenderer = detectPlatform().ios;
+    this._iosWarmFrames = this.iosRenderer ? 8 : 0;
+    this.pixelRatioCap = this.compact ? Math.min(devicePixelRatio || 1, 1.1) : Math.min(devicePixelRatio || 1, 1.5);
 
     this.renderer = new THREE.WebGLRenderer({
-      canvas, antialias: !this.compact, alpha: false, preserveDrawingBuffer: false, powerPreference: this.compact ? 'low-power' : 'high-performance'
+      canvas, antialias: !this.compact, alpha: false, preserveDrawingBuffer: false, powerPreference: 'default'
     });
     this.renderer.setPixelRatio(this.pixelRatioCap);
     this.renderer.setClearColor(this.studioColor, 1);
@@ -768,7 +773,7 @@ export class Three3DScene {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(this.studioColor);
-    this.scene.fog = new THREE.Fog(this.studioColor, 7.5, 16);
+    this.scene.fog = this.iosRenderer ? null : new THREE.Fog(this.studioColor, 7.5, 16);
     this.camera = new THREE.PerspectiveCamera(32, 1, 0.02, 100);
 
     const pmrem = new THREE.PMREMGenerator(this.renderer);
@@ -1198,6 +1203,9 @@ export class Three3DScene {
       this.renderer.render(this.scene, this.camera);
       this.layoutDimensions();
       this.dirty = false;
+    } else if (this.iosRenderer && this._iosWarmFrames > 0) {
+      this.renderer.render(this.scene, this.camera);
+      this._iosWarmFrames -= 1;
     }
   }
 
@@ -1380,36 +1388,29 @@ export class Three3DScene {
   buildFlatSheetGroup(c) {
     const width = c.width / 1000;
     const height = c.height / 1000;
-    const thickness = Math.max(0.0005, c.thickness / 1000);
     const appearance = finishAppearance(c);
-    const maps = createSheetMaps(c, Math.min(this.maxAnisotropy, 4));
+    const maps = createSheetMaps(c, 4);
     const group = new THREE.Group();
     group.name = 'AR_DETAIL_SHEET';
 
-    const faceMat = new THREE.MeshPhysicalMaterial({
+    const sourceMat = new THREE.MeshStandardMaterial({
       color: appearance.hex,
       metalness: appearance.metalness,
       roughness: appearance.roughness,
       alphaTest: PATTERNS[c.pattern]?.through === false ? 0 : HOLE_ALPHA_TEST,
       transparent: false,
-      side: THREE.FrontSide,
-      clearcoat: appearance.clearcoat,
-      clearcoatRoughness: c.finish === 'powder' ? 0.38 : 0.28,
-      envMapIntensity: appearance.envMapIntensity
+      side: THREE.FrontSide
     });
-    bindPatternMaps(faceMat, null, maps, c);
-    const backMat = faceMat.clone();
-    backMat.envMapIntensity = appearance.envMapIntensity + 0.2;
-    bindPatternMaps(null, backMat, maps, c);
+    bindPatternMaps(sourceMat, null, maps, c);
+    group.userData.sourceMat = sourceMat;
+    group.userData.appearance = appearance;
 
-    const solidMat = faceMat.clone();
-    solidMat.alphaMap = null;
-    solidMat.bumpMap = null;
-    solidMat.alphaTest = 0;
-    solidMat.bumpScale = 0;
-
-    addSheetSkins(group, faceMat, backMat, solidMat, width, height, thickness, c);
-    return { group, faceMat, backMat, solidMat, appearance };
+    const geometry = new THREE.PlaneGeometry(width, height);
+    const mesh = new THREE.Mesh(geometry, sourceMat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.y = 0.002;
+    group.add(mesh);
+    return { group, sourceMat, appearance };
   }
 
   async prepareGroupForUsdz(group) {
@@ -1417,15 +1418,13 @@ export class Three3DScene {
     group.traverse((obj) => {
       if (!obj.isMesh || !obj.material) return;
       const source = obj.material;
-      const hasHoles = Boolean(source.alphaMap);
-      const colorHex = source.color?.getHexString?.() ? `#${source.color.getHexString()}` : '#b8bcc2';
+      const appearance = group.userData.appearance || {};
       tasks.push(createUsdzMaterial(source, {
-        colorHex,
-        metalness: source.metalness ?? 0.82,
-        roughness: source.roughness ?? 0.34
+        colorHex: appearance.hex || (source.color?.getHexString?.() ? `#${source.color.getHexString()}` : '#b8bcc2'),
+        metalness: source.metalness ?? appearance.metalness ?? 0.82,
+        roughness: source.roughness ?? appearance.roughness ?? 0.34
       }).then((mat) => {
         obj.material = mat;
-        if (hasHoles) obj.renderOrder = 1;
       }));
     });
     await Promise.all(tasks);
@@ -1440,7 +1439,6 @@ export class Three3DScene {
 
     const wrapper = new THREE.Group();
     wrapper.add(group);
-    wrapper.rotation.x = -Math.PI / 2;
     wrapper.scale.setScalar(crop.magnify * (this.scalePercent / 100));
 
     const exporter = new USDZExporter();

@@ -7,8 +7,8 @@ export async function bakeUsdzDiffuseMap(material, colorHex = '#b8bcc2') {
 
   await ensureTextureImage(alphaMap);
   const src = alphaMap.image;
-  const w = src.width || 512;
-  const h = src.height || 512;
+  const w = Math.min(1024, src.width || 512);
+  const h = Math.min(1024, src.height || 512);
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
@@ -66,7 +66,7 @@ export async function createUsdzMaterial(source, { colorHex, metalness = 0.82, r
   if (baked) {
     mat.map = baked;
     mat.transparent = true;
-    mat.alphaTest = 0.45;
+    mat.alphaTest = 0.5;
     mat.depthWrite = true;
   } else if (source.map) {
     mat.map = source.map;
@@ -81,11 +81,7 @@ export function detailConfigFrom(config, crop) {
     ...config,
     width: Math.round(crop.detailW * 1000),
     height: Math.round(crop.detailH * 1000),
-    border: Math.min(
-      config.border,
-      Math.round(crop.detailW * 1000 * 0.08),
-      Math.round(crop.detailH * 1000 * 0.08)
-    ),
+    border: 0,
     panelForm: 'flat',
     flangeDepth: 0,
     bendAngle: 0,
@@ -98,17 +94,4 @@ export function detailConfigFrom(config, crop) {
 export function createUsdzBlobUrl(bytes, filename = 'steel-detail.usdz') {
   const file = new File([bytes], filename, { type: 'model/vnd.usdz+zip' });
   return URL.createObjectURL(file);
-}
-
-export function launchQuickLook(usdzHref) {
-  if (!usdzHref) return false;
-  const href = usdzHref.includes('#') ? usdzHref : `${usdzHref}#`;
-  const link = document.createElement('a');
-  link.rel = 'ar';
-  link.href = href;
-  link.style.display = 'none';
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  return true;
 }
