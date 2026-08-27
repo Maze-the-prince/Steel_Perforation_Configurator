@@ -1400,7 +1400,7 @@ export class Three3DScene {
       roughness: appearance.roughness,
       alphaTest: PATTERNS[c.pattern]?.through === false ? 0 : HOLE_ALPHA_TEST,
       transparent: false,
-      side: THREE.FrontSide
+      side: THREE.DoubleSide
     });
     bindPatternMaps(faceMat, null, maps, c);
 
@@ -1430,29 +1430,38 @@ export class Three3DScene {
       curveSegments: c.corner === 'radius' ? 14 : 1
     });
     frameGeo.translate(0, 0, -thickness / 2);
-    group.add(new THREE.Mesh(frameGeo, solidMat));
+    const frame = new THREE.Mesh(frameGeo, solidMat);
+    frame.name = 'AR_FRAME';
+    group.add(frame);
 
     const face = new THREE.Mesh(new THREE.PlaneGeometry(innerW, innerH), faceMat);
-    face.position.set(0, height / 2, thickness / 2 + 0.0001);
+    face.name = 'AR_FACE';
+    face.position.set(0, borderM + innerH / 2, thickness / 2 + 0.004);
+    face.renderOrder = 2;
     group.add(face);
 
+    group.rotation.x = -Math.PI / 2;
     group.userData.appearance = appearance;
     group.userData.innerW = innerW;
     group.userData.innerH = innerH;
+    group.userData.pattern = c.pattern;
     return { group, appearance, innerW, innerH };
   }
 
   async prepareGroupForUsdz(group, maxTextureSize = 1024) {
+    const appearance = group.userData.appearance || {};
+    const colorHex = appearance.hex || '#b8bcc2';
     const tasks = [];
     group.traverse((obj) => {
       if (!obj.isMesh || !obj.material) return;
       const source = obj.material;
-      const appearance = group.userData.appearance || {};
+      const isFace = obj.name === 'AR_FACE';
       tasks.push(createUsdzMaterial(source, {
-        colorHex: appearance.hex || (source.color?.getHexString?.() ? `#${source.color.getHexString()}` : '#b8bcc2'),
+        colorHex,
         metalness: source.metalness ?? appearance.metalness ?? 0.82,
         roughness: source.roughness ?? appearance.roughness ?? 0.34,
-        maxTextureSize
+        maxTextureSize,
+        perforated: isFace
       }).then((mat) => {
         obj.material = mat;
       }));
@@ -1469,7 +1478,7 @@ export class Three3DScene {
       maxTextureSize,
       ar: {
         anchoring: { type: 'plane' },
-        planeAnchoring: { alignment: 'vertical' }
+        planeAnchoring: { alignment: 'horizontal' }
       }
     };
     const arConfig = normalizeConfig({
@@ -1485,12 +1494,14 @@ export class Three3DScene {
       await this.prepareGroupForUsdz(group, maxTextureSize);
       const wrapper = new THREE.Group();
       wrapper.name = 'AR_WRAPPER';
+      wrapper.rotation.x = Math.PI / 2;
       wrapper.add(group);
       wrapper.scale.setScalar(this.scalePercent / 100);
       return await exporter.parseAsync(wrapper, options);
     } catch (err) {
       console.warn('AR sheet export failed, using model clone fallback', err);
       const wrapper = new THREE.Group();
+      wrapper.rotation.x = Math.PI / 2;
       const clone = this.model.clone(true);
       clone.traverse((obj) => { if (obj.isMesh && obj.material) obj.material = obj.material.clone(); });
       wrapper.add(clone);

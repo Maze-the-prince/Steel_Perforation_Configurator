@@ -50,6 +50,8 @@ export async function bakeUsdzDiffuseMap(material, colorHex = '#b8bcc2', { maxSi
   canvas.width = outW;
   canvas.height = outH;
   const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, outW, outH);
   const cellW = outW / repeatX;
   const cellH = outH / repeatY;
   const cols = Math.ceil(repeatX + Math.abs(offsetX));
@@ -105,22 +107,31 @@ async function ensureTextureImage(texture) {
   }
 }
 
-export async function createUsdzMaterial(source, { colorHex, metalness = 0.82, roughness = 0.34, maxTextureSize = 1024 } = {}) {
+export async function createUsdzMaterial(source, {
+  colorHex,
+  metalness = 0.82,
+  roughness = 0.34,
+  maxTextureSize = 1024,
+  perforated = false
+} = {}) {
+  const hex = colorHex?.startsWith('#') ? colorHex : `#${colorHex || 'b8bcc2'}`;
   const mat = new THREE.MeshStandardMaterial({
-    color: colorHex || '#b8bcc2',
+    color: hex,
     metalness,
     roughness,
-    side: THREE.FrontSide,
+    side: perforated ? THREE.DoubleSide : THREE.FrontSide,
     transparent: false,
     opacity: 1,
     alphaTest: 0
   });
 
-  const baked = await bakeUsdzDiffuseMap(source, mat.color.getHexString(), { maxSize: maxTextureSize });
+  const baked = perforated
+    ? await bakeUsdzDiffuseMap(source, hex, { maxSize: maxTextureSize })
+    : null;
   if (baked) {
     mat.map = baked;
-    mat.transparent = true;
-    mat.alphaTest = 0.5;
+    mat.transparent = false;
+    mat.alphaTest = 0.4;
     mat.depthWrite = true;
   } else if (source.map) {
     mat.map = source.map;
