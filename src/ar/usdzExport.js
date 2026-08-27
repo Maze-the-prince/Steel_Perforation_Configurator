@@ -258,3 +258,83 @@ export function arFaceTopBleedM(innerHM, borderMm = 0) {
 export function arFaceHeightM(innerHM, borderMm = 0) {
   return innerHM + arFaceTopBleedM(innerHM, borderMm);
 }
+
+const _instMatrix = new THREE.Matrix4();
+const _instVert = new THREE.Vector3();
+
+function mergePositionGeometries(geometries) {
+  const positions = [];
+  const indices = [];
+  let offset = 0;
+  geometries.forEach((geo) => {
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i += 1) positions.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+    const idx = geo.index ? geo.index.array : null;
+    if (idx) {
+      for (let i = 0; i < idx.length; i += 1) indices.push(idx[i] + offset);
+    } else {
+      for (let i = 0; i < pos.count; i += 1) indices.push(offset + i);
+    }
+    offset += pos.count;
+    geo.dispose();
+  });
+  const merged = new THREE.BufferGeometry();
+  merged.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  if (indices.length) merged.setIndex(indices);
+  merged.computeVertexNormals();
+  return merged;
+}
+
+function cloneGeometryWithMatrix(geometry, matrix) {
+  const geo = geometry.clone();
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i += 1) {
+    _instVert.fromBufferAttribute(pos, i);
+    _instVert.applyMatrix4(matrix);
+    pos.setXYZ(i, _instVert.x, _instVert.y, _instVert.z);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** Quick Look ignores InstancedMesh — merge instances into one exportable mesh. */
+export function instancedMeshToMergedMesh(instanced) {
+  const parts = [];
+  for (let i = 0; i < instanced.count; i += 1) {
+    instanced.getMatrixAt(i, _instMatrix);
+    parts.push(cloneGeometryWithMatrix(instanced.geometry, _instMatrix));
+  }
+  const material = instanced.material?.clone?.() || instanced.material;
+  if (material) {
+    material.side = THREE.FrontSide;
+    material.transparent = false;
+    material.alphaTest = 0;
+    material.alphaMap = null;
+    material.bumpMap = null;
+    material.needsUpdate = true;
+  }
+  const mesh = new THREE.Mesh(mergePositionGeometries(parts), material);
+  mesh.name = instanced.name || 'FORMED_FEATURES';
+  mesh.renderOrder = 3;
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  return mesh;
+}
+
+export function expandInstancedMeshesForUsdz(root) {
+  const instanced = [];
+  root.traverse((obj) => {
+    if (obj.isInstancedMesh && obj.count > 0) instanced.push(obj);
+  });
+  instanced.forEach((source) => {
+    const parent = source.parent;
+    if (!parent) return;
+    const mesh = instancedMeshToMergedMesh(source);
+    mesh.position.copy(source.position);
+    mesh.quaternion.copy(source.quaternion);
+    mesh.scale.copy(source.scale);
+    mesh.renderOrder = source.renderOrder;
+    parent.add(mesh);
+    parent.remove(source);
+  });
+}

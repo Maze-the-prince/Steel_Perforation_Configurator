@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import * as THREE from 'three';
 import {
   applyArFaceBleedUv,
   arFaceHeightM,
+  expandInstancedMeshesForUsdz,
   innerFaceTextureSize,
   sheetInnerSizeMm,
   usdzExportFingerprint,
@@ -77,5 +79,23 @@ assert.ok(Math.abs(hexRepeat.tileH - PATTERN_DEFAULTS.hex.pitch * STAGGER_ROW * 
 
 const bleedUv = applyArFaceBleedUv({ repeat: { set(x, y) { this.x = x; this.y = y; } }, offset: { set(x, y) { this.ox = x; this.oy = y; } }, wrapT: 0 }, 2.36, 2.37);
 assert.ok(Math.abs(bleedUv.repeat.y - 2.36 / 2.37) < 0.0001, 'bleed UV should shrink pattern to inner height');
+
+const instGeo = new THREE.BoxGeometry(0.01, 0.01, 0.02);
+const instMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+const inst = new THREE.InstancedMesh(instGeo, instMat, 2);
+const dummy = new THREE.Object3D();
+dummy.position.set(0.1, 0, 0);
+dummy.updateMatrix();
+inst.setMatrixAt(0, dummy.matrix);
+dummy.position.set(-0.1, 0, 0);
+dummy.updateMatrix();
+inst.setMatrixAt(1, dummy.matrix);
+inst.instanceMatrix.needsUpdate = true;
+const root = new THREE.Group();
+root.add(inst);
+expandInstancedMeshesForUsdz(root);
+assert.equal(root.children.length, 1, 'instanced mesh should become one merged mesh');
+assert.ok(root.children[0].isMesh, 'formed export should be a regular mesh');
+assert.ok(root.children[0].geometry.attributes.position.count > instGeo.attributes.position.count, 'merged mesh should include all instances');
 
 console.log('AR USDZ export tests passed.');

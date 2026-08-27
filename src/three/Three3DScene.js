@@ -4,7 +4,7 @@ import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
 import { XREstimatedLight } from 'three/examples/jsm/webxr/XREstimatedLight.js';
 import { conicalProfile, cornerTreatmentMm, decorativeOffsets, estimatedHoleCount, finishAppearance, forEachHole, normalizeConfig, PATTERNS, STAGGER_ROW } from '../state/config.js';
 import { bindPbrMaps, loadPbrMaps } from './pbrMaterials.js';
-import { createUsdzMaterial, usdzExportFingerprint, arFaceHeightM, bakeArFaceUsdzMap, applyArFaceBleedUv } from '../ar/usdzExport.js';
+import { createUsdzMaterial, usdzExportFingerprint, arFaceHeightM, bakeArFaceUsdzMap, applyArFaceBleedUv, expandInstancedMeshesForUsdz } from '../ar/usdzExport.js';
 import { detectPlatform, isCompactWeb } from '../ar/detect.js';
 
 const _hitPos = new THREE.Vector3();
@@ -450,12 +450,12 @@ function seatGeometryOnFace(geo) {
   return geo;
 }
 
-function trieurCupGeometry(wallDepth = 0.45) {
-  const dome = new THREE.SphereGeometry(1, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+function trieurCupGeometry(wallDepth = 0.45, { widthSegments = 16, heightSegments = 10 } = {}) {
+  const dome = new THREE.SphereGeometry(1, widthSegments, heightSegments, 0, Math.PI * 2, 0, Math.PI / 2);
   dome.rotateX(Math.PI / 2);
   seatGeometryOnFace(dome);
   const depth = Math.max(0.12, wallDepth);
-  const neck = new THREE.CylinderGeometry(0.9, 0.9, depth, 16, 1, true);
+  const neck = new THREE.CylinderGeometry(0.9, 0.9, depth, widthSegments, 1, true);
   neck.rotateX(Math.PI / 2);
   neck.translate(0, 0, -depth / 2);
   return mergeIndexedGeometries([dome, neck]);
@@ -634,7 +634,7 @@ function perfoconConeGeometry(c, segments = 16) {
   return geo;
 }
 
-function addFormedFeatures(group, c, width, height, thickness, mat, { zLift = 0 } = {}) {
+function addFormedFeatures(group, c, width, height, thickness, mat, { zLift = 0, arExport = false } = {}) {
   const kind = PATTERNS[c.pattern]?.kind;
   if (!isExtrudedForm(kind)) return null;
   const count = Math.min(FORMED_INSTANCE_LIMIT, estimatedHoleCount(c));
@@ -649,7 +649,7 @@ function addFormedFeatures(group, c, width, height, thickness, mat, { zLift = 0 
     sx = radius;
     sy = radius;
     sz = radius;
-    geometry = trieurCupGeometry(thickness / sz);
+    geometry = trieurCupGeometry(thickness / sz, arExport && count > 12000 ? { widthSegments: 10, heightSegments: 6 } : undefined);
   } else if (kind === 'embossed') {
     const size = c.holeSize / 1000;
     sx = size * 0.9;
@@ -657,7 +657,7 @@ function addFormedFeatures(group, c, width, height, thickness, mat, { zLift = 0 
     sz = size * 0.38;
     geometry = embossedDiamondGeometry(thickness / sz);
   } else if (kind === 'perfocon') {
-    const segments = count > 80000 ? 8 : count > 25000 ? 12 : 16;
+    const segments = arExport ? 8 : (count > 80000 ? 8 : count > 25000 ? 12 : 16);
     geometry = perfoconConeGeometry(c, segments);
     sx = 1;
     sy = 1;
@@ -1444,7 +1444,8 @@ export class Three3DScene {
     const innerW = Math.max(0.0008, width - 2 * borderM);
     const innerH = Math.max(0.0008, height - 2 * borderM);
     const appearance = finishAppearance(c);
-    const maps = createArSheetMaps(c, 4);
+    const extruded = isExtrudedForm(PATTERNS[c.pattern]?.kind);
+    const maps = createSheetMaps(c, 4);
     const group = new THREE.Group();
     group.name = 'AR_SHEET';
 
@@ -1454,12 +1455,12 @@ export class Three3DScene {
       roughness: appearance.roughness,
       alphaTest: PATTERNS[c.pattern]?.through === false ? 0 : HOLE_ALPHA_TEST,
       transparent: false,
-      side: THREE.DoubleSide
+      side: THREE.FrontSide
     });
-    bindArPatternMaps(faceMat, null, maps, c);
+    bindPatternMaps(faceMat, null, maps, c);
 
     const backMat = faceMat.clone();
-    backMat.side = THREE.DoubleSide;
+    backMat.side = THREE.FrontSide;
     bindPatternMaps(null, backMat, maps, c);
 
     const solidMat = new THREE.MeshStandardMaterial({
@@ -1470,6 +1471,10 @@ export class Three3DScene {
     });
 
     addSheetSkins(group, faceMat, backMat, solidMat, width, height, thickness, { ...c, _arExport: true });
+
+    if (extruded) {
+      addFormedFeatures(group, c, width, height, thickness, solidMat, { arExport: true });
+    }
 
     group.traverse((obj) => {
       if (!obj.isMesh) return;
@@ -1498,6 +1503,7 @@ export class Three3DScene {
     const innerW = group.userData.innerW || 0;
     const innerH = group.userData.innerH || 0;
     const arFaceH = group.userData.arFaceH || innerH;
+    expandInstancedMeshesForUsdz(group);
     const tasks = [];
     group.traverse((obj) => {
       if (!obj.isMesh || !obj.material) return;
