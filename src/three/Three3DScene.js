@@ -4,6 +4,7 @@ import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
 import { XREstimatedLight } from 'three/examples/jsm/webxr/XREstimatedLight.js';
 import { conicalProfile, cornerTreatmentMm, decorativeOffsets, estimatedHoleCount, finishAppearance, forEachHole, normalizeConfig, PATTERNS, STAGGER_ROW } from '../state/config.js';
 import { bindPbrMaps, loadPbrMaps } from './pbrMaterials.js';
+import { isCompactWeb } from '../ar/detect.js';
 
 const _hitPos = new THREE.Vector3();
 
@@ -746,18 +747,20 @@ export class Three3DScene {
     this.formId = '';
     this.maxAnisotropy = 4;
     this.dimHud = null;
+    this.compact = isCompactWeb();
+    this.pixelRatioCap = this.compact ? Math.min(devicePixelRatio || 1, 1.15) : Math.min(devicePixelRatio || 1, 1.5);
 
     this.renderer = new THREE.WebGLRenderer({
-      canvas, antialias: true, alpha: false, preserveDrawingBuffer: false, powerPreference: 'high-performance'
+      canvas, antialias: !this.compact, alpha: false, preserveDrawingBuffer: false, powerPreference: this.compact ? 'low-power' : 'high-performance'
     });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
+    this.renderer.setPixelRatio(this.pixelRatioCap);
     this.renderer.setClearColor(this.studioColor, 1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.22;
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.toneMappingExposure = 1.32;
+    this.renderer.shadowMap.enabled = !this.compact;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.shadowMap.autoUpdate = !bakedShadows;
+    this.renderer.shadowMap.autoUpdate = !bakedShadows && !this.compact;
     this.renderer.xr.enabled = true;
     this.renderer.xr.setReferenceSpaceType('local');
 
@@ -771,13 +774,13 @@ export class Three3DScene {
     this.scene.environment = this.studioEnv;
     pmrem.dispose();
 
-    this.maxAnisotropy = Math.min(16, this.renderer.capabilities.getMaxAnisotropy() || 8);
+    this.maxAnisotropy = Math.min(this.compact ? 4 : 16, this.renderer.capabilities.getMaxAnisotropy() || 8);
     this.hemi = new THREE.HemisphereLight(0xf7f9fb, 0x8a9298, 1.85);
     this.scene.add(this.hemi);
-    this.keyLight = new THREE.DirectionalLight(0xffffff, 2.62);
+    this.keyLight = new THREE.DirectionalLight(0xffffff, this.compact ? 2.2 : 2.62);
     this.keyLight.position.set(2.4, 4.8, 3.4);
-    this.keyLight.castShadow = true;
-    this.keyLight.shadow.mapSize.set(1024, 1024);
+    this.keyLight.castShadow = !this.compact;
+    this.keyLight.shadow.mapSize.set(this.compact ? 512 : 1024, this.compact ? 512 : 1024);
     this.keyLight.shadow.bias = -0.00025;
     this.keyLight.shadow.normalBias = 0.02;
     const shadowCam = this.keyLight.shadow.camera;
@@ -788,24 +791,26 @@ export class Three3DScene {
     shadowCam.top = 2.4;
     shadowCam.bottom = -0.4;
     this.scene.add(this.keyLight);
-    this.rimLight = new THREE.DirectionalLight(0xd7e6ff, 2.05);
+    this.rimLight = new THREE.DirectionalLight(0xd7e6ff, this.compact ? 1.15 : 2.05);
     this.rimLight.position.set(-3.2, 2.4, -2.8);
     this.scene.add(this.rimLight);
-    this.fillLight = new THREE.DirectionalLight(0xfff6ea, 0.7);
+    this.fillLight = new THREE.DirectionalLight(0xfff6ea, this.compact ? 0.45 : 0.7);
     this.fillLight.position.set(-1.4, 1.6, 3.2);
     this.scene.add(this.fillLight);
-    this.backLight = new THREE.DirectionalLight(0xffffff, 2.15);
-    this.backLight.position.set(-2.1, 3.6, -3.8);
-    this.scene.add(this.backLight);
+    if (!this.compact) {
+      this.backLight = new THREE.DirectionalLight(0xffffff, 2.15);
+      this.backLight.position.set(-2.1, 3.6, -3.8);
+      this.scene.add(this.backLight);
+    }
 
     this.ground = new THREE.Mesh(
-      new THREE.CircleGeometry(1.72, 64),
+      new THREE.CircleGeometry(1.72, this.compact ? 32 : 64),
       new THREE.MeshStandardMaterial({ color: 0x0c1014, metalness: 0.28, roughness: 0.58, envMapIntensity: 0.18 })
     );
     this.ground.rotation.x = -Math.PI / 2;
     this.ground.receiveShadow = true;
     this.scene.add(this.ground);
-    this.groundShadow = new THREE.Mesh(new THREE.CircleGeometry(1.08, 48), new THREE.ShadowMaterial({ opacity: 0.64 }));
+    this.groundShadow = new THREE.Mesh(new THREE.CircleGeometry(1.08, this.compact ? 24 : 48), new THREE.ShadowMaterial({ opacity: 0.64 }));
     this.groundShadow.rotation.x = -Math.PI / 2;
     this.groundShadow.position.y = 0.002;
     this.groundShadow.receiveShadow = true;
@@ -837,12 +842,14 @@ export class Three3DScene {
     this.onARPointerDown = this.onARPointerDown.bind(this);
     this.onARPointerMove = this.onARPointerMove.bind(this);
     this.onARPointerUp = this.onARPointerUp.bind(this);
-    canvas.addEventListener('pointerdown', this.onPointerDown);
+    canvas.addEventListener('pointerdown', this.onPointerDown, { passive: false });
     window.addEventListener('pointermove', this.onPointerMove);
     window.addEventListener('pointerup', this.onPointerUp);
+    window.addEventListener('pointercancel', this.onPointerUp);
     canvas.addEventListener('wheel', this.onWheel, { passive: false });
     this.resizeObserver = new ResizeObserver(() => this.onResize());
     this.resizeObserver.observe(canvas.parentElement || canvas);
+    window.visualViewport?.addEventListener('resize', this.onResize);
 
     this.onResize();
     this.applyOrbit(true);
@@ -906,7 +913,7 @@ export class Three3DScene {
     }
     if (this.disposed) return;
     const tint = maps?.colorMap && appearance.pbr?.useColorMap
-      ? (appearance.pbr.tint || '#ffffff')
+      ? (appearance.pbr.tint || appearance.hex || '#ffffff')
       : appearance.hex;
     const apply = (mat, extraMetal = 0, extraRough = 0) => {
       if (!mat) return;
@@ -1300,6 +1307,7 @@ export class Three3DScene {
 
   onPointerDown(e) {
     if (this.xrSession) return;
+    if (e.pointerType === 'touch') e.preventDefault();
     this.canvas.setPointerCapture(e.pointerId);
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (this.pointers.size === 2) {
@@ -1437,7 +1445,7 @@ export class Three3DScene {
     this.keyLight.intensity = 2.62; this.hemi.intensity = 1.62; this.scene.environment = this.studioEnv;
     if (this.xrLight) this.scene.remove(this.xrLight);
     document.body.classList.remove('is-ar');
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
+    this.renderer.setPixelRatio(this.pixelRatioCap);
     this.applyCurrentScale(); this.onResize(); this.setArMode('idle'); this.dirty = true;
   }
 
@@ -1449,7 +1457,9 @@ export class Three3DScene {
     this.canvas.removeEventListener('pointerdown', this.onPointerDown);
     window.removeEventListener('pointermove', this.onPointerMove);
     window.removeEventListener('pointerup', this.onPointerUp);
+    window.removeEventListener('pointercancel', this.onPointerUp);
     this.canvas.removeEventListener('wheel', this.onWheel);
+    window.visualViewport?.removeEventListener('resize', this.onResize);
     this.resizeObserver?.disconnect();
     this.hideDimensions();
     this.dimHud = null;

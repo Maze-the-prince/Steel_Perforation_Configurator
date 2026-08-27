@@ -1,3 +1,12 @@
+export function isCompactWeb() {
+  if (typeof window === 'undefined') return false;
+  const coarse = window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 1;
+  const narrow = window.matchMedia('(max-width: 900px)').matches;
+  const saveData = Boolean(navigator.connection?.saveData);
+  const lowMem = Number(navigator.deviceMemory) > 0 && navigator.deviceMemory <= 4;
+  return saveData || lowMem || (coarse && narrow) || narrow;
+}
+
 export function detectPlatform() {
   const ua = navigator.userAgent || '';
   const ios = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);

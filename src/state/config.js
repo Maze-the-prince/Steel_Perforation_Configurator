@@ -30,13 +30,13 @@ export const MATERIALS = {
     label: 'Carbon steel',
     short: 'CRS',
     density: 7850,
-    baseHex: '#58544e',
+    baseHex: '#7a746c',
     galvanizedHex: '#9aa48e',
     metalness: 0.9,
     roughness: 0.46,
     grain: 'rolled',
-    preview: { hi: '#9a9590', mid: '#6a6762', lo: '#3c3a37' },
-    swatch: 'url("./materials/sheet_metal_001/preview.png")'
+    preview: { hi: '#c4bdb4', mid: '#8a847c', lo: '#5a564f' },
+    cardImage: './materials/cards/carbon-steel.jpg'
   },
   ss304: {
     label: 'Stainless 304',
@@ -48,7 +48,7 @@ export const MATERIALS = {
     roughness: 0.11,
     grain: 'brushed',
     preview: { hi: '#f4f7f9', mid: '#c5ced4', lo: '#8f99a1' },
-    swatch: 'url("./materials/metal049a/preview.png")'
+    cardImage: './materials/cards/stainless-304.jpg'
   },
   alu: {
     label: 'Aluminium',
@@ -60,7 +60,7 @@ export const MATERIALS = {
     roughness: 0.17,
     grain: 'fine',
     preview: { hi: '#fcfdfe', mid: '#e4e8eb', lo: '#b8bcc0' },
-    swatch: 'url("./materials/metal049a/preview.png")'
+    cardImage: './materials/cards/aluminium.jpg'
   }
 };
 

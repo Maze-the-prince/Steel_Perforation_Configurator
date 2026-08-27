@@ -40,11 +40,8 @@ async function loadOptional(url, options) {
 }
 
 async function loadFirst(urls, options) {
-  for (const url of urls) {
-    const texture = await loadOptional(url, options);
-    if (texture) return texture;
-  }
-  return null;
+  const loaded = await Promise.all(urls.map((url) => loadOptional(url, options)));
+  return loaded.find(Boolean) || null;
 }
 
 function mapUrls(folder, name) {
@@ -57,7 +54,8 @@ function mapUrls(folder, name) {
 export async function loadPbrMaps(config, anisotropyLimit = 1) {
   const preset = pbrPresetFor(config);
   const folder = preset.folder || preset.id;
-  const cached = cache.get(folder);
+  const cacheKey = `${folder}|${preset.useColorMap !== false}|${preset.useNormalMap !== false}|${preset.anisotropyMap ? 1 : 0}`;
+  const cached = cache.get(cacheKey);
   if (cached) return cached;
 
   const pending = (async () => {
@@ -77,11 +75,11 @@ export async function loadPbrMaps(config, anisotropyLimit = 1) {
     return { preset, folder, colorMap, normalMap, roughnessMap, metalnessMap, aoMap: null, anisotropyMap };
   })();
 
-  cache.set(folder, pending);
+  cache.set(cacheKey, pending);
   try {
     return await pending;
   } catch (err) {
-    cache.delete(folder);
+    cache.delete(cacheKey);
     throw err;
   }
 }
@@ -90,9 +88,11 @@ export function bindPbrMaps(mat, maps, appearance, sheetRepeat) {
   if (!mat || !maps) return;
   const preset = appearance.pbr || maps.preset || {};
   const useColorMap = preset.useColorMap !== false;
+  const useNormalMap = preset.useNormalMap !== false;
+  const useRoughnessMap = preset.useRoughnessMap !== false;
   mat.map = useColorMap ? maps.colorMap : null;
-  mat.normalMap = maps.normalMap;
-  mat.roughnessMap = maps.roughnessMap;
+  mat.normalMap = useNormalMap ? maps.normalMap : null;
+  mat.roughnessMap = useRoughnessMap ? maps.roughnessMap : null;
   mat.metalnessMap = preset.useMetalnessMap === false ? null : maps.metalnessMap;
   mat.aoMap = maps.aoMap || null;
   mat.aoMapIntensity = maps.aoMap ? 0.85 : 0;

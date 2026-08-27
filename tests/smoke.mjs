@@ -88,7 +88,10 @@ const millAlu = finishAppearance({ ...initialConfig, material: 'alu', finish: 'm
 assert.notEqual(millCarbon.hex, mill304.hex, 'carbon and stainless mill colors must differ');
 assert.notEqual(mill304.hex, millAlu.hex, 'stainless and aluminium mill colors must differ');
 assert.ok(millCarbon.roughness > mill304.roughness, 'carbon mill should be duller than stainless');
+assert.ok(mill304.roughness < 0.5, 'stainless mill should stay satin, not matte');
+assert.ok(millAlu.roughness < mill304.roughness, 'aluminium mill should be brighter/smoother than stainless');
 assert.ok(millAlu.metalness > 0.9 && mill304.metalness > millAlu.metalness - 0.01);
+assert.ok((pbrPresetFor({ material: 'carbon', finish: 'mill' }).colorBoost || 1) < 1.4, 'carbon mill should not blow the albedo');
 assert.equal(pbrPresetFor({ material: 'carbon', finish: 'mill' }).id, 'sheet_metal_001');
 assert.equal(pbrPresetFor({ material: 'ss304', finish: 'brushed' }).id, 'metal049a_brushed');
 assert.equal(pbrPresetFor({ material: 'alu', finish: 'mill' }).id, 'metal049a_alu');

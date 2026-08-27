@@ -160,13 +160,15 @@ export function PatternPreview({ pattern, className = '', material = 'carbon', v
     });
   } else if (pattern === 'bridgeSlot') {
     content = tiled({
-      xStep: 46, yStep: 24, stagger: true,
+      xStep: 56, yStep: 28, stagger: false,
       render: (x, y, k) => (
         <g key={k}>
-          <PunchSlot cx={x} cy={y + 1.2} w={32} h={9.5} ids={ids} />
-          <path d={`M ${x - 14.5} ${y + 4.6} L ${x - 8} ${y - 4.4} H ${x + 8} L ${x + 14.5} ${y + 4.6} Z`} fill="rgba(0,0,0,.28)" />
-          <path d={`M ${x - 14} ${y + 3.8} L ${x - 7.6} ${y - 5} H ${x + 7.6} L ${x + 14} ${y + 3.8} Z`} fill={`url(#${ids.bridge})`} />
-          <path d={`M ${x - 7.2} ${y - 4.6} H ${x + 7.2}`} stroke="rgba(255,255,255,.5)" strokeWidth="0.9" />
+          <ellipse cx={x} cy={y + 4.2} rx="15" ry="3.2" fill="rgba(0,0,0,.14)" />
+          <rect x={x - 16.5} y={y - 4.6} width="33" height="9.2" rx="4.6" fill={`url(#${ids.bridge})`} />
+          <rect x={x - 16.5} y={y + 2.2} width="33" height="2.4" rx="1.1" fill={look.lo} />
+          <rect x={x - 12} y={y - 3.4} width="24" height="2.2" rx="1.1" fill="rgba(255,255,255,.28)" />
+          <rect x={x - 16.2} y={y - 2.6} width="4.2" height="5.2" rx="1.4" fill={`url(#${ids.voidG})`} />
+          <rect x={x + 12} y={y - 2.6} width="4.2" height="5.2" rx="1.4" fill={`url(#${ids.voidG})`} />
         </g>
       )
     });
@@ -211,15 +213,25 @@ export function PatternPreview({ pattern, className = '', material = 'carbon', v
     }
   } else if (pattern === 'embossed') {
     content = tiled({
-      xStep: 32, yStep: 27.6, stagger: true,
-      render: (x, y, k) => (
-        <g key={k}>
-          <polygon points={diamondPoints(x + 0.8, y + 1.1, 9.2)} fill="rgba(0,0,0,.3)" />
-          <polygon points={diamondPoints(x, y, 8.8)} fill={`url(#${ids.bump})`} />
-          <polygon points={diamondPoints(x - 0.6, y - 0.8, 3.4)} fill="rgba(255,255,255,.22)" />
-          <PunchCircle cx={x} cy={y} r={2.1} ids={ids} />
-        </g>
-      )
+      xStep: 38, yStep: 34, stagger: true,
+      render: (x, y, k) => {
+        const r = 9.2;
+        const p = r * 0.62;
+        return (
+          <g key={k}>
+            <ellipse cx={x + 0.45} cy={y + 1.35} rx={r * 0.92} ry={r * 0.78} fill="rgba(0,0,0,.16)" />
+            <polygon points={diamondPoints(x, y, r)} fill={look.plate0} />
+            <polygon points={`${x},${y - r} ${x},${y - p} ${x - p},${y} ${x - r},${y}`} fill={look.hi} />
+            <polygon points={`${x},${y - r} ${x + r},${y} ${x + p},${y} ${x},${y - p}`} fill={look.mid} />
+            <polygon points={`${x - r},${y} ${x - p},${y} ${x},${y + p} ${x},${y + r}`} fill={look.plate1} />
+            <polygon points={`${x},${y + p} ${x + p},${y} ${x + r},${y} ${x},${y + r}`} fill={look.lo} />
+            <polygon points={diamondPoints(x, y, p)} fill={look.plate0} />
+            <polygon points={`${x},${y - p} ${x},${y} ${x - p * 0.55},${y}`} fill="rgba(255,255,255,.22)" />
+            <circle cx={x} cy={y} r={2.05} fill={`url(#${ids.voidG})`} />
+            <circle cx={x} cy={y} r={2.05} fill="none" stroke="rgba(12,16,20,.55)" strokeWidth="0.4" />
+          </g>
+        );
+      }
     });
   } else {
     content = tiled({
@@ -282,9 +294,9 @@ export function PatternPreview({ pattern, className = '', material = 'carbon', v
         </radialGradient>
         <linearGradient id={ids.bridge} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor={look.hi} />
-          <stop offset=".28" stopColor={look.mid} />
-          <stop offset=".7" stopColor={look.lo} />
-          <stop offset="1" stopColor="#2a2e32" />
+          <stop offset=".22" stopColor={look.mid} />
+          <stop offset=".62" stopColor={look.plate0} />
+          <stop offset="1" stopColor={look.plate1} />
         </linearGradient>
       </defs>
       <g clipPath={`url(#${ids.clip})`}>

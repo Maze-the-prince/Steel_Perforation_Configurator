@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { Three3DScene } from '../three/Three3DScene.js';
+import { isCompactWeb } from '../ar/detect.js';
 
-const VIEW_DEBOUNCE_MS = 120;
+const VIEW_DEBOUNCE_MS = isCompactWeb() ? 180 : 120;
 
 export function Viewer({ config, scalePercent, onReady, onError, onArState, onArScale, onBusy }) {
   const canvasRef = useRef(null);

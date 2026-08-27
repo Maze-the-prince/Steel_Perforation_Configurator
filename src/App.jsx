@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Viewer } from './components/Viewer.jsx';
 import { PatternPreview } from './components/PatternPreview.jsx';
-import { AR_DEVICE_HELP, detectPlatform, friendlyArError, immersiveArAvailable } from './ar/detect.js';
+import { AR_DEVICE_HELP, detectPlatform, friendlyArError, immersiveArAvailable, isCompactWeb } from './ar/detect.js';
 import {
   AD_LINE, CONE_INCLUDED_OPTIONS, CORNER_OPTIONS, FINISHES, FINISH_COLORS, FINISH_COLOR_ORDER, FINISH_COLOR_PREVIEW,
   MATERIALS, MM_PER_IN, PANEL_FORMS, PATTERN_DEFAULTS, PATTERN_GROUPS, PATTERNS,
@@ -74,7 +74,7 @@ export function App() {
   const [tool, setTool] = useState('orbit');
   const [sizeLock, setSizeLock] = useState(false);
   const lockedPairRef = useRef({ w: 0, h: 0 });
-  const [paramsOpen, setParamsOpen] = useState(true);
+  const [paramsOpen, setParamsOpen] = useState(() => !isCompactWeb());
   const [fabOpen, setFabOpen] = useState('form');
   const sceneRef = useRef(null);
   const overlayRef = useRef(null);
@@ -165,13 +165,19 @@ export function App() {
   const usdzKey = [
     config.width, config.height, config.thickness, config.material, config.finish, config.color,
     config.pattern, config.holeSize, config.slotLength, config.pitch, config.rowPitch, config.border,
-    config.panelForm, config.flangeDepth, config.bendAngle, config.bendRadius, config.corner, config.cornerRadius
+    config.coneAngle, config.panelForm, config.flangeDepth, config.bendAngle, config.bendRadius,
+    config.corner, config.cornerRadius
   ].join('|');
 
+  useEffect(() => () => {
+    if (usdzUrlRef.current) URL.revokeObjectURL(usdzUrlRef.current);
+  }, []);
+
   useEffect(() => {
-    if (!PLATFORM.ios || !sceneReady || !sceneRef.current) return undefined;
+    if (!PLATFORM.ios || !sceneReady || !sceneRef.current || sceneBusy) return undefined;
     let cancelled = false;
     const timer = window.setTimeout(() => {
+      if (cancelled || sceneBusy) return;
       sceneRef.current.exportUSDZ().then((bytes) => {
         if (cancelled) return;
         if (usdzUrlRef.current) URL.revokeObjectURL(usdzUrlRef.current);
@@ -181,7 +187,7 @@ export function App() {
       }).catch(() => { if (!cancelled) setUsdzHref(''); });
     }, 400);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [sceneReady, usdzKey]);
+  }, [sceneReady, sceneBusy, usdzKey]);
 
   async function startAR() {
     if (!sceneRef.current) { setArHelp('Wait for the 3D panel to load, then tap View in AR again.'); return; }
@@ -332,9 +338,9 @@ export function App() {
           ))}
         </nav>
         <div className="head-actions">
-          <button className="ghost-action" type="button" onClick={save}><IconSave /> Save</button>
-          <button className="ghost-action" type="button" onClick={share}><IconShare /> Share</button>
-          <button className="ghost-action" type="button" onClick={openQuote}>Request Quote</button>
+          <button className="ghost-action" type="button" aria-label="Save configuration" onClick={save}><IconSave /> <span className="action-label">Save</span></button>
+          <button className="ghost-action" type="button" aria-label="Share configuration" onClick={share}><IconShare /> <span className="action-label">Share</span></button>
+          <button className="ghost-action quote-action" type="button" aria-label="Request quote" onClick={openQuote}><span className="action-label">Request </span>Quote</button>
         </div>
       </header>
 
@@ -374,7 +380,7 @@ export function App() {
               <ArButton usdzHref={usdzHref} onLaunch={startAR} onHelp={setArHelp} />
             </div>
             {sceneBusy && <div className="viewer-busy">Updating perforation…</div>}
-            {orbitHint && <p className="orbit-caption">Drag to rotate · scroll to zoom</p>}
+            {orbitHint && <p className="orbit-caption">Drag to rotate · pinch or scroll to zoom</p>}
             {viewerError && <p className="viewer-error">3D view could not start. Open this page in Chrome or Safari.</p>}
           </div>
 
@@ -390,8 +396,22 @@ export function App() {
                 <div className="summary-sku"><span>Product code</span><strong>{sku}</strong></div>
                 <div><span>Sheet</span><strong>{dim(config.width)} × {dim(config.height)} × {dim(config.thickness, unit === 'in' ? 3 : 1)}</strong></div>
                 <div><span>Quantity</span><strong>{config.quantity} pcs · {stock.label}</strong></div>
-                <div><span>Material</span><strong>{MATERIALS[config.material].label}</strong></div>
-                <div><span>Pattern</span><strong>{PATTERNS[config.pattern].label}{PATTERNS[config.pattern]?.conical ? ` · ${config.coneAngle}°` : ''}</strong></div>
+                <div className="review-pattern">
+                  <span className="material-preview review-material-preview" aria-hidden="true">
+                    <img src={MATERIALS[config.material].cardImage} alt="" />
+                  </span>
+                  <div className="review-pattern-meta">
+                    <span>Material</span>
+                    <strong>{MATERIALS[config.material].label}</strong>
+                  </div>
+                </div>
+                <div className="review-pattern">
+                  <span className={`pattern-preview pattern-${config.pattern}`} aria-hidden="true" />
+                  <div className="review-pattern-meta">
+                    <span>Pattern</span>
+                    <strong>{PATTERNS[config.pattern].label}{PATTERNS[config.pattern]?.conical ? ` · ${config.coneAngle}°` : ''}</strong>
+                  </div>
+                </div>
                 <div><span>Opening</span><strong>{config.holeSize} mm · {pitchText} mm centers{slotPattern ? ` · slot ${config.slotLength} mm` : ''}{PATTERNS[config.pattern]?.conical ? ` · head Ø${conicalProfile(config).head.toFixed(2)} · exit Ø${conicalProfile(config).exit}` : ''}</strong></div>
                 <div><span>Finish</span><strong>{finishLabel}</strong></div>
                 <div><span>Form</span><strong>{PANEL_FORMS[config.panelForm].label}{config.panelForm !== 'flat' ? ` · flange ${config.flangeDepth} mm · ${config.bendAngle}° · R${config.bendRadius}` : ''}</strong></div>
@@ -455,10 +475,20 @@ export function App() {
               <PanelSection index="02" title="Material">
                 <div className="material-grid">
                   {Object.entries(MATERIALS).map(([key, item]) => (
-                    <button type="button" key={key} className={`material-card ${config.material === key ? 'active' : ''}`} onClick={() => dispatch({ type: 'set', key: 'material', value: key })}>
-                      <span className="material-swatch" style={{ backgroundImage: item.swatch }} />
-                      <strong>{item.label}</strong>
-                      <small>{item.short}</small>
+                    <button
+                      type="button"
+                      key={key}
+                      className={`material-card${config.material === key ? ' active' : ''}`}
+                      onClick={() => dispatch({ type: 'set', key: 'material', value: key })}
+                    >
+                      <div className="material-preview">
+                        <img src={item.cardImage} alt="" />
+                        <span className="material-check" aria-hidden="true">✓</span>
+                      </div>
+                      <div className="material-info">
+                        <strong className="material-name">{item.label}</strong>
+                        <small className="material-code">{item.short}</small>
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -667,7 +697,7 @@ export function App() {
               <Field name="name" label="Name" required />
               <Field name="company" label="Company" required />
               <Field name="email" label="Email" type="email" required />
-              <Field name="phone" label="Phone" />
+              <Field name="phone" label="Phone" type="tel" />
               <Field name="quantity" label="Quantity" type="number" defaultValue={String(config.quantity)} />
               <div className="full"><label className="label">Project / fabrication notes</label><textarea className="textarea" name="notes" rows={4} placeholder="Quantity, tolerances, edge treatment, delivery location..." /></div>
             </div>
@@ -765,6 +795,8 @@ function NumberControl({ label, suffix, value, min, max, step, onChange, units, 
       <div>
         <input
           type="number"
+          inputMode="decimal"
+          enterKeyHint="done"
           value={shown}
           min={displayMin}
           max={displayMax}
@@ -793,9 +825,18 @@ function NumberControl({ label, suffix, value, min, max, step, onChange, units, 
   );
 }
 function Modal({ title, onClose, children }) { return <div className="modal-backdrop"><div className="modal"><div className="modal-head"><h2>{title}</h2><button className="icon-btn" type="button" onClick={onClose}>×</button></div><div className="modal-body">{children}</div></div></div>; }
-function Field({ name, label, type = 'text', required, defaultValue }) { return <div><label className="label">{label}</label><input className="text-input" name={name} type={type} required={required} defaultValue={defaultValue} min={type === 'number' ? 1 : undefined} /></div>; }
+function Field({ name, label, type = 'text', required, defaultValue }) {
+  const inputMode = type === 'email' ? 'email' : type === 'tel' ? 'tel' : type === 'number' ? 'numeric' : undefined;
+  const autoComplete = type === 'email' ? 'email' : type === 'tel' ? 'tel' : name === 'name' ? 'name' : name === 'company' ? 'organization' : undefined;
+  return (
+    <div>
+      <label className="label">{label}</label>
+      <input className="text-input" name={name} type={type} inputMode={inputMode} autoComplete={autoComplete} required={required} defaultValue={defaultValue} min={type === 'number' ? 1 : undefined} enterKeyHint={type === 'email' || type === 'tel' ? 'next' : undefined} />
+    </div>
+  );
+}
 function ToolBtn({ active, title, onClick, children }) {
-  return <button type="button" className={active ? 'active' : ''} title={title} onClick={onClick}>{children}</button>;
+  return <button type="button" className={active ? 'active' : ''} title={title} aria-label={title} onClick={onClick}>{children}</button>;
 }
 function Ico({ d, children }) {
   return <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">{children || <path d={d} />}</svg>;
