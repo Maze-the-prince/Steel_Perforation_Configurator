@@ -185,3 +185,10 @@ export function usdzExportFingerprint(config) {
     c.coneAngle, c.corner, c.cornerRadius
   ].join('|');
 }
+
+/** Extra height on the AR face so Quick Look fills the top frame edge. */
+export const AR_FACE_TOP_BLEED_RATIO = 0.05;
+
+export function arFaceHeightM(innerHM) {
+  return innerHM * (1 + AR_FACE_TOP_BLEED_RATIO);
+}

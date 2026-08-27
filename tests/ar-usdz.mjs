@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  arFaceHeightM,
   innerFaceTextureSize,
   sheetInnerSizeMm,
   usdzExportFingerprint,
@@ -38,5 +39,8 @@ const fp2 = usdzExportFingerprint({ ...base, pattern: 'slot' });
 const fp3 = usdzExportFingerprint(base);
 assert.notEqual(fp1, fp2, 'export fingerprint should change when pattern changes');
 assert.equal(fp1, fp3, 'export fingerprint should be stable for the same config');
+
+assert.ok(arFaceHeightM(2.36) > 2.36, 'AR face should extend beyond the inner opening height');
+assert.ok(Math.abs(arFaceHeightM(2.36) / 2.36 - 1.05) < 0.001, 'AR face top bleed should be 5%');
 
 console.log('AR USDZ export tests passed.');

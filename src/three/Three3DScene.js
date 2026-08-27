@@ -4,7 +4,7 @@ import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
 import { XREstimatedLight } from 'three/examples/jsm/webxr/XREstimatedLight.js';
 import { conicalProfile, cornerTreatmentMm, decorativeOffsets, estimatedHoleCount, finishAppearance, forEachHole, normalizeConfig, PATTERNS, STAGGER_ROW } from '../state/config.js';
 import { bindPbrMaps, loadPbrMaps } from './pbrMaterials.js';
-import { createUsdzMaterial, innerFaceTextureSize, sheetInnerSizeMm, usdzExportFingerprint, usdzFaceRepeat } from '../ar/usdzExport.js';
+import { createUsdzMaterial, innerFaceTextureSize, sheetInnerSizeMm, usdzExportFingerprint, usdzFaceRepeat, arFaceHeightM } from '../ar/usdzExport.js';
 import { detectPlatform, isCompactWeb } from '../ar/detect.js';
 
 const _hitPos = new THREE.Vector3();
@@ -155,7 +155,6 @@ function drawBump(ctx, c, x, y, d, sx, sy) {
 
 const TILE_PX = 512;
 const HOLE_ALPHA_TEST = 0.5;
-const AR_FACE_Y_NUDGE_M = 0.0006;
 const ZOOM_MIN = 0.12;
 const ZOOM_MAX = 4.6;
 
@@ -366,16 +365,24 @@ function addSheetSkins(group, faceMat, backMat, solidMat, width, height, thickne
   body.receiveShadow = true;
   group.add(body);
 
+  if (c._arExport) {
+    const arFaceH = arFaceHeightM(innerH);
+    const faceGeo = new THREE.PlaneGeometry(innerW, arFaceH, 1, 1);
+    faceGeo.translate(0, arFaceH / 2, 0);
+    const face = new THREE.Mesh(faceGeo, faceMat);
+    face.position.set(0, borderM, z);
+    group.add(face);
+    return;
+  }
+
   const addFace = (mat, sign) => {
     const inner = new THREE.Mesh(new THREE.PlaneGeometry(innerW, innerH, 1, 1), mat);
-    const y = c._arExport && sign > 0 ? height / 2 + AR_FACE_Y_NUDGE_M : height / 2;
-    inner.position.set(0, y, sign * z);
+    inner.position.set(0, height / 2, sign * z);
     inner.castShadow = false;
     inner.receiveShadow = sign > 0;
     group.add(inner);
   };
   addFace(faceMat, 1);
-  if (c._arExport) return;
   if (backMat) addFace(backMat, -1);
 
   const outlineLines = new THREE.LineSegments(
@@ -1430,13 +1437,15 @@ export class Three3DScene {
     group.userData.exportFingerprint = usdzExportFingerprint(c);
     group.userData.innerW = innerW;
     group.userData.innerH = innerH;
+    group.userData.arFaceH = arFaceHeightM(innerH);
     return { group, appearance, innerW, innerH };
   }
 
-  async bakeArFaceTexture(sourceMat, innerWM, innerHM, config, maxTextureSize = 4096) {
+  async bakeArFaceTexture(sourceMat, innerWM, faceHM, config, maxTextureSize = 4096) {
     const { innerWidthMm, innerHeightMm } = sheetInnerSizeMm(config.width, config.height, config.border);
     const { repeatX, repeatY } = usdzFaceRepeat(config, innerWidthMm, innerHeightMm);
-    const { outW, outH } = innerFaceTextureSize(innerWidthMm, innerHeightMm, repeatX, repeatY, maxTextureSize);
+    const faceHeightMm = faceHM * 1000;
+    const { outW, outH } = innerFaceTextureSize(innerWidthMm, faceHeightMm, repeatX, repeatY, maxTextureSize);
 
     const bakeMat = new THREE.MeshBasicMaterial({
       color: sourceMat.color.clone(),
@@ -1447,10 +1456,10 @@ export class Three3DScene {
     });
 
     const scene = new THREE.Scene();
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(innerWM, innerHM), bakeMat);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(innerWM, faceHM), bakeMat);
     scene.add(mesh);
 
-    const camera = new THREE.OrthographicCamera(-innerWM / 2, innerWM / 2, innerHM / 2, -innerHM / 2, 0.01, 10);
+    const camera = new THREE.OrthographicCamera(-innerWM / 2, innerWM / 2, faceHM / 2, -faceHM / 2, 0.01, 10);
     camera.position.set(0, 0, 1);
     camera.lookAt(0, 0, 0);
 
@@ -1478,12 +1487,22 @@ export class Three3DScene {
     canvas.height = outH;
     const ctx = canvas.getContext('2d');
     const imageData = ctx.createImageData(outW, outH);
-    imageData.data.set(pixels);
+    for (let y = 0; y < outH; y += 1) {
+      for (let x = 0; x < outW; x += 1) {
+        const srcY = outH - 1 - y;
+        const srcI = (srcY * outW + x) * 4;
+        const dstI = (y * outW + x) * 4;
+        imageData.data[dstI] = pixels[srcI];
+        imageData.data[dstI + 1] = pixels[srcI + 1];
+        imageData.data[dstI + 2] = pixels[srcI + 2];
+        imageData.data[dstI + 3] = pixels[srcI + 3];
+      }
+    }
     ctx.putImageData(imageData, 0, 0);
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
-    texture.flipY = true;
+    texture.flipY = false;
     texture.wrapS = THREE.ClampToEdgeWrapping;
     texture.wrapT = THREE.ClampToEdgeWrapping;
     texture.repeat.set(1, 1);
@@ -1501,12 +1520,13 @@ export class Three3DScene {
     const config = group.userData.arConfig || null;
     const innerW = group.userData.innerW || 0;
     const innerH = group.userData.innerH || 0;
+    const arFaceH = group.userData.arFaceH || innerH;
     const tasks = [];
     group.traverse((obj) => {
       if (!obj.isMesh || !obj.material) return;
       const source = obj.material;
-      if (obj.name === 'AR_FACE' && config && innerW > 0 && innerH > 0) {
-        tasks.push(this.bakeArFaceTexture(source, innerW, innerH, config, maxTextureSize).then((map) => {
+      if (obj.name === 'AR_FACE' && config && innerW > 0 && arFaceH > 0) {
+        tasks.push(this.bakeArFaceTexture(source, innerW, arFaceH, config, maxTextureSize).then((map) => {
           obj.material = new THREE.MeshStandardMaterial({
             color: colorHex,
             map,
