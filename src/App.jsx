@@ -350,7 +350,6 @@ export function App() {
             <div>
               <h1>{brand.productName}</h1>
               <p className="steel-tagline">{viewStep === 'review' ? 'Confirm the 3D sheet, then copy the spec or request a quote.' : AD_LINE}</p>
-              <span className="live-pill"><i /> {viewStep === 'review' ? 'Review' : 'Live 3D'}</span>
             </div>
             <div className="sku-chip" title={sku}>
               <code>{sku}</code>
