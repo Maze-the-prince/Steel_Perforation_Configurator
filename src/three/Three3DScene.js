@@ -490,15 +490,48 @@ function mergeIndexedGeometries(geos) {
 function instancedMeshToMergedMesh(instanced) {
   const count = instanced.count;
   if (!count) return null;
+  const src = instanced.geometry;
+  const posAttr = src.attributes.position;
+  const srcVerts = posAttr.count;
+  if (!srcVerts) return null;
+
   const matrix = new THREE.Matrix4();
-  const geos = [];
+  const point = new THREE.Vector3();
+  const mergedPos = new Float32Array(srcVerts * count * 3);
+  let write = 0;
+
   for (let i = 0; i < count; i += 1) {
     instanced.getMatrixAt(i, matrix);
-    const g = instanced.geometry.clone();
-    g.applyMatrix4(matrix);
-    geos.push(g);
+    for (let v = 0; v < srcVerts; v += 1) {
+      point.fromBufferAttribute(posAttr, v).applyMatrix4(matrix);
+      mergedPos[write] = point.x;
+      mergedPos[write + 1] = point.y;
+      mergedPos[write + 2] = point.z;
+      write += 3;
+    }
   }
-  const mergedGeo = mergeIndexedGeometries(geos);
+
+  let mergedIndex = null;
+  const srcIndex = src.index;
+  if (srcIndex) {
+    const srcArr = srcIndex.array;
+    mergedIndex = srcArr.BYTES_PER_ELEMENT === 4 || srcVerts * count > 65535
+      ? new Uint32Array(srcArr.length * count)
+      : new Uint16Array(srcArr.length * count);
+    let dst = 0;
+    for (let i = 0; i < count; i += 1) {
+      const base = i * srcVerts;
+      for (let j = 0; j < srcArr.length; j += 1) {
+        mergedIndex[dst++] = srcArr[j] + base;
+      }
+    }
+  }
+
+  const mergedGeo = new THREE.BufferGeometry();
+  mergedGeo.setAttribute('position', new THREE.BufferAttribute(mergedPos, 3));
+  if (mergedIndex) mergedGeo.setIndex(mergedIndex);
+  mergedGeo.computeVertexNormals();
+
   const mat = instanced.material.clone();
   mat.side = THREE.FrontSide;
   return new THREE.Mesh(mergedGeo, mat);
@@ -632,7 +665,7 @@ function perfoconConeGeometry(c, segments = 16) {
   return geo;
 }
 
-function addFormedFeatures(group, c, width, height, thickness, mat) {
+function addFormedFeatures(group, c, width, height, thickness, mat, { zLift = 0 } = {}) {
   const kind = PATTERNS[c.pattern]?.kind;
   if (!isExtrudedForm(kind)) return null;
   const count = Math.min(FORMED_INSTANCE_LIMIT, estimatedHoleCount(c));
@@ -678,7 +711,7 @@ function addFormedFeatures(group, c, width, height, thickness, mat) {
   let i = 0;
   forEachHole(c, (x, y) => {
     if (i >= count) return false;
-    _formDummy.position.set(x / 1000 - width / 2, y / 1000, thickness / 2);
+    _formDummy.position.set(x / 1000 - width / 2, y / 1000, thickness / 2 + zLift);
     _formDummy.rotation.set(0, 0, 0);
     _formDummy.scale.set(sx, sy, sz);
     _formDummy.updateMatrix();
@@ -766,6 +799,7 @@ export class Three3DScene {
     this.config = null;
     this.sizeKey = '';
     this.configGen = 0;
+    this.exportGen = 0;
     this.orbit = { theta: -0.48, phi: 1.18, radius: 1.92 };
     this.target = { ...this.orbit };
     this.lookAt = new THREE.Vector3(0, 0.72, 0);
@@ -1459,6 +1493,14 @@ export class Three3DScene {
     backMat.side = THREE.DoubleSide;
     bindPatternMaps(null, backMat, maps, c);
 
+    const patternKind = PATTERNS[c.pattern]?.kind;
+    if (isExtrudedForm(patternKind)) {
+      faceMat.alphaMap = null;
+      faceMat.alphaTest = 0;
+      faceMat.bumpMap = null;
+      faceMat.bumpScale = 0;
+    }
+
     const solidMat = new THREE.MeshStandardMaterial({
       color: appearance.hex,
       metalness: Math.min(1, appearance.metalness + 0.06),
@@ -1467,7 +1509,7 @@ export class Three3DScene {
     });
 
     addSheetSkins(group, faceMat, backMat, solidMat, width, height, thickness, { ...c, _arExport: true });
-    const formedGroup = addFormedFeatures(group, c, width, height, thickness, solidMat);
+    const formedGroup = addFormedFeatures(group, c, width, height, thickness, solidMat, { zLift: 0.0002 });
     if (formedGroup) expandInstancedMeshesForExport(formedGroup);
 
     group.traverse((obj) => {
@@ -1606,6 +1648,7 @@ export class Three3DScene {
 
   async exportUSDZ(exportConfig = this.config) {
     if (!this.model || !exportConfig) throw new Error('3D model is still loading');
+    const exportGen = ++this.exportGen;
     const exporter = new USDZExporter();
     const maxTextureSize = this.compact ? 2048 : 4096;
     const options = {
@@ -1624,16 +1667,23 @@ export class Three3DScene {
       bendRadius: 0
     });
 
+    let group = null;
     try {
-      const { group } = this.buildArSheetGroup(arConfig);
+      ({ group } = this.buildArSheetGroup(arConfig));
+      if (exportGen !== this.exportGen) throw new Error('stale-export');
       await this.prepareGroupForUsdz(group, maxTextureSize);
+      if (exportGen !== this.exportGen) throw new Error('stale-export');
       const wrapper = new THREE.Group();
       wrapper.name = 'AR_WRAPPER';
       wrapper.add(group);
+      group = null;
       wrapper.scale.setScalar(this.scalePercent / 100);
       wrapper.userData.exportFingerprint = usdzExportFingerprint(arConfig);
-      return await exporter.parseAsync(wrapper, options);
+      const bytes = await exporter.parseAsync(wrapper, options);
+      if (exportGen !== this.exportGen) throw new Error('stale-export');
+      return bytes;
     } catch (err) {
+      if (exportGen !== this.exportGen || err?.message === 'stale-export') throw err;
       console.warn('AR sheet export failed, using model clone fallback', err);
       const wrapper = new THREE.Group();
       const clone = this.model.clone(true);
@@ -1641,6 +1691,8 @@ export class Three3DScene {
       wrapper.add(clone);
       wrapper.scale.setScalar(this.scalePercent / 100);
       return exporter.parseAsync(wrapper, options);
+    } finally {
+      if (group) disposeObject(group);
     }
   }
 

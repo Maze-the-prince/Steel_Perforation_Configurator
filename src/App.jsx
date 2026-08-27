@@ -182,6 +182,7 @@ export function App() {
   const onBusy = useCallback((busy) => setSceneBusy(Boolean(busy)), []);
 
   const usdzKey = usdzExportFingerprint(config);
+  const usdzExportGenRef = useRef(0);
 
   useEffect(() => () => {
     if (usdzUrlRef.current) URL.revokeObjectURL(usdzUrlRef.current);
@@ -193,9 +194,12 @@ export function App() {
     if (quickLookRef.current) quickLookRef.current.dataset.ready = '0';
     if (sceneBusy) return undefined;
     let cancelled = false;
+    const formedPattern = Boolean(PATTERNS[config.pattern]?.formed);
+    const debounceMs = formedPattern ? (COMPACT ? 500 : 400) : USDZ_DEBOUNCE_MS;
     const timer = window.setTimeout(() => {
+      const exportGen = ++usdzExportGenRef.current;
       sceneRef.current.exportUSDZ(config).then((bytes) => {
-        if (cancelled) return;
+        if (cancelled || exportGen !== usdzExportGenRef.current) return;
         if (usdzUrlRef.current) URL.revokeObjectURL(usdzUrlRef.current);
         const url = URL.createObjectURL(new Blob([bytes], { type: 'model/vnd.usdz+zip' }));
         usdzUrlRef.current = url;
@@ -206,11 +210,13 @@ export function App() {
           quickLookRef.current.dataset.ready = '1';
         }
       }).catch((err) => {
+        if (cancelled || exportGen !== usdzExportGenRef.current) return;
+        if (err?.message === 'stale-export') return;
         console.error('USDZ export failed', err);
         setUsdzReady(false);
         if (quickLookRef.current) quickLookRef.current.dataset.ready = '0';
       });
-    }, USDZ_DEBOUNCE_MS);
+    }, debounceMs);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
