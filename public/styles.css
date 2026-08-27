@@ -120,13 +120,14 @@ a { color: inherit; }
 .viewer-tools-touch {
   left: 10px; top: 10px; transform: none;
   display: flex; flex-direction: row; align-items: center;
-  gap: 10px; padding: 6px 10px;
+  gap: 12px; padding: 6px 10px;
 }
-.viewer-tools-touch button { width: 40px; height: 40px; flex: 0 0 40px; }
-.ar-quicklook-link { position: relative; overflow: hidden; }
-.ar-poster {
-  position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;
+.viewer-tools-touch button {
+  width: 40px; height: 40px; flex: 0 0 40px;
+  transition: none; touch-action: manipulation;
 }
+.ar-link { position: relative; text-decoration: none; }
+.ar-icon { width: 1px; height: 1px; position: absolute; opacity: 0; overflow: hidden; pointer-events: none; }
 .nav-cube {
   position: absolute; z-index: 5; left: 12px; bottom: 12px;
   display: grid; grid-template-columns: 1fr 1fr; width: 88px; gap: 1px;
@@ -737,9 +738,12 @@ body.is-touch-tablet .dim { display: none; }
 body.is-touch-tablet .viewer-tools {
   left: 10px; top: 10px; transform: none;
   display: flex; flex-direction: row; align-items: center;
-  gap: 10px; padding: 6px 10px;
+  gap: 12px; padding: 6px 10px;
 }
-body.is-touch-tablet .viewer-tools button { width: 40px; height: 40px; flex: 0 0 40px; }
+body.is-touch-tablet .viewer-tools button {
+  width: 40px; height: 40px; flex: 0 0 40px;
+  transition: none; touch-action: manipulation;
+}
 body.is-touch-tablet .pattern-thumb { width: 64px; height: 64px; right: 10px; bottom: 10px; }
 body.is-touch-tablet .pattern-thumb span { display: none; }
 body.is-touch-tablet .viewer-shell {

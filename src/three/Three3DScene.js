@@ -756,7 +756,6 @@ export class Three3DScene {
     this.dimHud = null;
     this.compact = isCompactWeb() || detectPlatform().ios;
     this.iosRenderer = detectPlatform().ios;
-    this._iosWarmFrames = this.iosRenderer ? 8 : 0;
     this.pixelRatioCap = this.compact ? Math.min(devicePixelRatio || 1, 1.1) : Math.min(devicePixelRatio || 1, 1.5);
 
     this.renderer = new THREE.WebGLRenderer({
@@ -1205,9 +1204,6 @@ export class Three3DScene {
       this.renderer.render(this.scene, this.camera);
       this.layoutDimensions();
       this.dirty = false;
-    } else if (this.iosRenderer && this._iosWarmFrames > 0) {
-      this.renderer.render(this.scene, this.camera);
-      this._iosWarmFrames -= 1;
     }
   }
 
@@ -1441,23 +1437,28 @@ export class Three3DScene {
 
   async exportUSDZ() {
     if (!this.model || !this.config) throw new Error('3D model is still loading');
-    const crop = computeArDetailCrop(this.config);
-    const detailConfig = normalizeConfig(detailConfigFrom(this.config, crop));
-    const { group } = this.buildArSheetGroup(detailConfig);
-    await this.prepareGroupForUsdz(group);
-
-    const wrapper = new THREE.Group();
-    wrapper.add(group);
-    wrapper.scale.setScalar(crop.magnify * (this.scalePercent / 100));
-
     const exporter = new USDZExporter();
     const maxTextureSize = this.compact ? 768 : 1024;
-    return exporter.parseAsync(wrapper, {
-      quickLookCompatible: true,
-      maxTextureSize,
-      includeAnchoringProperties: true,
-      ar: { anchoring: { type: 'plane' }, planeAnchoring: { alignment: 'horizontal' } }
-    });
+    const options = { quickLookCompatible: true, maxTextureSize };
+
+    try {
+      const crop = computeArDetailCrop(this.config);
+      const detailConfig = normalizeConfig(detailConfigFrom(this.config, crop));
+      const { group } = this.buildArSheetGroup(detailConfig);
+      await this.prepareGroupForUsdz(group);
+      const wrapper = new THREE.Group();
+      wrapper.add(group);
+      wrapper.scale.setScalar(crop.magnify * (this.scalePercent / 100));
+      return await exporter.parseAsync(wrapper, options);
+    } catch (err) {
+      console.warn('Detail USDZ export failed, using full model fallback', err);
+      const wrapper = new THREE.Group();
+      const clone = this.model.clone(true);
+      clone.traverse((obj) => { if (obj.isMesh && obj.material) obj.material = obj.material.clone(); });
+      wrapper.add(clone);
+      wrapper.scale.setScalar(this.fitScale * (this.scalePercent / 100));
+      return exporter.parseAsync(wrapper, options);
+    }
   }
 
   async enterAR({ overlay } = {}) {

@@ -1,47 +1,5 @@
 import * as THREE from 'three';
 
-const SW_CACHE = 'steel-quicklook-v1';
-const SW_ENTRY = 'detail-usdz';
-
-function assetBase() {
-  const base = import.meta.env.BASE_URL || '/';
-  return base.endsWith('/') ? base : `${base}/`;
-}
-
-export function quickLookUsdzUrl() {
-  return new URL('quicklook/detail.usdz', `${window.location.origin}${assetBase()}`).href;
-}
-
-export async function ensureQuickLookServiceWorker() {
-  if (!('serviceWorker' in navigator) || !('caches' in window)) return false;
-  try {
-    const reg = await navigator.serviceWorker.register(`${assetBase()}quicklook-sw.js`, { scope: assetBase() });
-    await reg.update();
-    await navigator.serviceWorker.ready;
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Publish USDZ bytes to same-origin URL (avoids iOS blob white-page flash). */
-export async function publishQuickLookUsdz(bytes) {
-  const url = quickLookUsdzUrl();
-  const ready = await ensureQuickLookServiceWorker();
-  if (ready) {
-    const cache = await caches.open(SW_CACHE);
-    await cache.put(SW_ENTRY, new Response(bytes, {
-      headers: {
-        'Content-Type': 'model/vnd.usdz+zip',
-        'Content-Disposition': 'inline; filename="steel-detail.usdz"'
-      }
-    }));
-    return url;
-  }
-  const file = new File([bytes], 'steel-detail.usdz', { type: 'model/vnd.usdz+zip' });
-  return URL.createObjectURL(file);
-}
-
 /** Bake alphaMap holes into an RGBA map that USDZ / Quick Look understands. */
 export async function bakeUsdzDiffuseMap(material, colorHex = '#b8bcc2') {
   const alphaMap = material.alphaMap;
@@ -137,9 +95,4 @@ export function detailConfigFrom(config, crop) {
     corner: 'square',
     cornerRadius: 0
   };
-}
-
-export function quickLookHref(usdzUrl) {
-  if (!usdzUrl) return '#ar';
-  return usdzUrl.includes('#') ? usdzUrl : `${usdzUrl}#allowsContentScaling=0`;
 }

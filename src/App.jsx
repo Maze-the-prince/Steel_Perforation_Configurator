@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import { Viewer } from './components/Viewer.jsx';
 import { PatternPreview } from './components/PatternPreview.jsx';
 import { AR_DEVICE_HELP, detectPlatform, friendlyArError, immersiveArAvailable, isCompactWeb } from './ar/detect.js';
-import { ensureQuickLookServiceWorker, publishQuickLookUsdz, quickLookHref } from './ar/usdzExport.js';
 import {
   AD_LINE, CONE_INCLUDED_OPTIONS, CORNER_OPTIONS, FINISHES, FINISH_COLORS, FINISH_COLOR_ORDER, FINISH_COLOR_PREVIEW,
   MATERIALS, MM_PER_IN, PANEL_FORMS, PATTERN_DEFAULTS, PATTERN_GROUPS, PATTERNS,
@@ -25,7 +24,7 @@ const EMBED = new URL(location.href).searchParams.get('embed') === '1';
 const SAVE_KEY = 'steel-configurator-saved';
 const PLATFORM = detectPlatform();
 const COMPACT = isCompactWeb();
-const USDZ_DEBOUNCE_MS = COMPACT ? 650 : 400;
+const AR_POSTER = `${import.meta.env.BASE_URL}assets/sample-logo.svg`;
 let didTrackView = false;
 
 function embedTargetOrigin() {
@@ -72,7 +71,6 @@ export function App() {
   const [sceneReady, setSceneReady] = useState(false);
   const [sceneBusy, setSceneBusy] = useState(false);
   const [arScale, setArScale] = useState(100);
-  const [usdzHref, setUsdzHref] = useState('');
   const [step, setStep] = useState('configure');
   const [tool, setTool] = useState('orbit');
   const [sizeLock, setSizeLock] = useState(false);
@@ -83,6 +81,7 @@ export function App() {
   const overlayRef = useRef(null);
   const dimHudRef = useRef({ width: null, height: null, thickness: null });
   const usdzUrlRef = useRef('');
+  const quickLookRef = useRef(null);
   const toastTimer = useRef(0);
   const sku = useMemo(() => skuFor(config, brand.skuPrefix), [config, brand.skuPrefix]);
   const openArea = useMemo(() => openAreaPercent(config), [config]);
@@ -122,10 +121,6 @@ export function App() {
   }, []);
 
   useEffect(() => { postToHost({ type: 'configurationChanged', configuration: config, sku }); }, [config, sku]);
-
-  useEffect(() => {
-    if (PLATFORM.ios) ensureQuickLookServiceWorker().catch(() => {});
-  }, []);
 
   useEffect(() => {
     document.body.classList.toggle('is-touch-tablet', PLATFORM.touchTablet || PLATFORM.ios);
@@ -190,24 +185,27 @@ export function App() {
   ].join('|');
 
   useEffect(() => () => {
-    if (usdzUrlRef.current?.startsWith('blob:')) URL.revokeObjectURL(usdzUrlRef.current);
+    if (usdzUrlRef.current) URL.revokeObjectURL(usdzUrlRef.current);
   }, []);
 
   useEffect(() => {
-    if (!PLATFORM.ios || !sceneReady || !sceneRef.current || sceneBusy) return undefined;
+    if (!PLATFORM.ios || !sceneReady || !sceneRef.current) return undefined;
     let cancelled = false;
-    const timer = window.setTimeout(() => {
-      if (cancelled || sceneBusy) return;
-      sceneRef.current.exportUSDZ().then(async (bytes) => {
-        if (cancelled) return;
-        if (usdzUrlRef.current?.startsWith('blob:')) URL.revokeObjectURL(usdzUrlRef.current);
-        const url = await publishQuickLookUsdz(bytes);
-        usdzUrlRef.current = url;
-        setUsdzHref(url);
-      }).catch(() => { if (!cancelled) setUsdzHref(''); });
-    }, USDZ_DEBOUNCE_MS);
-    return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [sceneReady, sceneBusy, usdzKey]);
+    sceneRef.current.exportUSDZ().then((bytes) => {
+      if (cancelled) return;
+      if (usdzUrlRef.current) URL.revokeObjectURL(usdzUrlRef.current);
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'model/vnd.usdz+zip' }));
+      usdzUrlRef.current = url;
+      if (quickLookRef.current) {
+        quickLookRef.current.href = url;
+        quickLookRef.current.dataset.ready = '1';
+      }
+    }).catch((err) => {
+      console.error('USDZ export failed', err);
+      if (quickLookRef.current) quickLookRef.current.dataset.ready = '0';
+    });
+    return () => { cancelled = true; };
+  }, [sceneReady, usdzKey]);
 
   async function startAR() {
     if (!sceneRef.current) { setArHelp('Wait for the 3D panel to load, then tap View in AR again.'); return; }
@@ -305,8 +303,8 @@ export function App() {
   const borderInvalid = config.border < limits.minBorder;
 
   function applyTool(next) {
-    setTool(next);
     sceneRef.current?.setTool(next);
+    if (!PLATFORM.touchTablet) setTool(next);
   }
 
   function setSize(key, value) {
@@ -380,7 +378,7 @@ export function App() {
           <div className="viewer-shell" onPointerDown={() => setOrbitHint(false)}>
             <Viewer config={config} scalePercent={100} onReady={onReady} onError={() => setViewerError(true)} onArState={onArState} onArScale={onArScale} onBusy={onBusy} />
             <div className={`viewer-tools${PLATFORM.touchTablet ? ' viewer-tools-touch' : ''}`}>
-              <ToolBtn active={tool === 'orbit'} title="Rotate the sheet" onClick={() => applyTool('orbit')}><IconOrbit /></ToolBtn>
+              <ToolBtn active={!PLATFORM.touchTablet && tool === 'orbit'} title="Rotate the sheet" onClick={() => applyTool('orbit')}><IconOrbit /></ToolBtn>
               {!PLATFORM.touchTablet && <ToolBtn active={tool === 'zoom'} title="Zoom the view" onClick={() => applyTool('zoom')}><IconZoom /></ToolBtn>}
               <ToolBtn title="Fit sheet in view" onClick={() => sceneRef.current?.fitView()}><IconFit /></ToolBtn>
               {!PLATFORM.touchTablet && <ToolBtn active={tool === 'pan'} title="Pan the camera" onClick={() => applyTool('pan')}><IconPan /></ToolBtn>}
@@ -396,7 +394,15 @@ export function App() {
             <div className="dim dim-h" ref={(el) => { dimHudRef.current.height = el; }}><i /><b /><i /><em>{dim(config.height)}</em></div>
             <div className="dim dim-t" ref={(el) => { dimHudRef.current.thickness = el; }}><i /><b /><i /><em>{dim(config.thickness, unit === 'in' ? 3 : 1)}</em></div>
             <div className="viewer-ar">
-              <ArButton usdzHref={usdzHref} posterSrc={MATERIALS[config.material].cardImage} onLaunch={startAR} onHelp={setArHelp} />
+              {PLATFORM.android && (
+                <button className="btn btn-outline" type="button" onClick={startAR}>View in AR</button>
+              )}
+              {PLATFORM.ios && (
+                <a ref={quickLookRef} className="btn btn-outline ar-link" rel="ar" href="#quicklook">
+                  <img className="ar-icon" alt="" src={AR_POSTER} />
+                  View in AR
+                </a>
+              )}
             </div>
             {sceneBusy && <div className="viewer-busy">Updating perforation…</div>}
             {orbitHint && <p className="orbit-caption">Drag to rotate · pinch or scroll to zoom</p>}
@@ -762,32 +768,6 @@ export function App() {
   );
 }
 
-function ArButton({ usdzHref, onLaunch, onHelp, posterSrc }) {
-  if (PLATFORM.ios) {
-    return (
-      <a
-        className="btn btn-outline ar-quicklook-link"
-        rel="ar"
-        href={quickLookHref(usdzHref)}
-        onClick={(event) => {
-          if (!usdzHref) {
-            event.preventDefault();
-            onHelp('Preparing the AR detail sample. Wait a moment, then tap View in AR again.');
-          }
-        }}
-      >
-        {posterSrc ? <img src={posterSrc} alt="" className="ar-poster" /> : null}
-        View in AR
-      </a>
-    );
-  }
-  return (
-    <button className="btn btn-outline" type="button" onClick={async () => {
-      if (await immersiveArAvailable()) onLaunch();
-      else onHelp(AR_DEVICE_HELP);
-    }}>View in AR</button>
-  );
-}
 function PanelSection({ index, title, children }) {
   return <section className="panel-section"><div className="section-title"><span>{index}</span><h2>{title}</h2></div>{children}</section>;
 }
