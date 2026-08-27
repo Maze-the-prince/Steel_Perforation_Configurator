@@ -374,7 +374,9 @@ function addSheetSkins(group, faceMat, backMat, solidMat, width, height, thickne
     group.add(inner);
   };
   addFace(faceMat, 1);
-  addFace(backMat, -1);
+  if (backMat) addFace(backMat, -1);
+
+  if (c._arExport) return;
 
   const outlineLines = new THREE.LineSegments(
     new THREE.EdgesGeometry(bodyGeo, 18),
@@ -1385,15 +1387,16 @@ export class Three3DScene {
     return data;
   }
 
-  buildFlatSheetGroup(c) {
+  buildArSheetGroup(c) {
     const width = c.width / 1000;
     const height = c.height / 1000;
+    const thickness = Math.max(0.0005, c.thickness / 1000);
     const appearance = finishAppearance(c);
     const maps = createSheetMaps(c, 4);
     const group = new THREE.Group();
     group.name = 'AR_DETAIL_SHEET';
 
-    const sourceMat = new THREE.MeshStandardMaterial({
+    const faceMat = new THREE.MeshStandardMaterial({
       color: appearance.hex,
       metalness: appearance.metalness,
       roughness: appearance.roughness,
@@ -1401,16 +1404,22 @@ export class Three3DScene {
       transparent: false,
       side: THREE.FrontSide
     });
-    bindPatternMaps(sourceMat, null, maps, c);
-    group.userData.sourceMat = sourceMat;
-    group.userData.appearance = appearance;
+    bindPatternMaps(faceMat, null, maps, c);
 
-    const geometry = new THREE.PlaneGeometry(width, height);
-    const mesh = new THREE.Mesh(geometry, sourceMat);
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.position.y = 0.002;
-    group.add(mesh);
-    return { group, sourceMat, appearance };
+    const solidMat = new THREE.MeshStandardMaterial({
+      color: appearance.hex,
+      metalness: Math.min(1, appearance.metalness + 0.06),
+      roughness: Math.max(0.08, appearance.roughness - 0.06),
+      side: THREE.FrontSide
+    });
+
+    addSheetSkins(group, faceMat, null, solidMat, width, height, thickness, { ...c, _arExport: true });
+
+    group.userData.appearance = appearance;
+    group.rotation.x = -Math.PI / 2;
+    group.position.y = thickness / 2;
+
+    return { group, appearance };
   }
 
   async prepareGroupForUsdz(group) {
@@ -1434,7 +1443,7 @@ export class Three3DScene {
     if (!this.model || !this.config) throw new Error('3D model is still loading');
     const crop = computeArDetailCrop(this.config);
     const detailConfig = normalizeConfig(detailConfigFrom(this.config, crop));
-    const { group } = this.buildFlatSheetGroup(detailConfig);
+    const { group } = this.buildArSheetGroup(detailConfig);
     await this.prepareGroupForUsdz(group);
 
     const wrapper = new THREE.Group();
