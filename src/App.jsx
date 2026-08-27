@@ -483,7 +483,7 @@ export function App() {
                     >
                       <div className="material-preview">
                         <img src={item.cardImage} alt="" />
-                        <span className="material-check" aria-hidden="true">✓</span>
+                        {config.material === key && <span className="material-check" aria-hidden="true">✓</span>}
                       </div>
                       <div className="material-info">
                         <strong className="material-name">{item.label}</strong>
