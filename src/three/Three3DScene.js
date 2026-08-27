@@ -155,6 +155,7 @@ function drawBump(ctx, c, x, y, d, sx, sy) {
 
 const TILE_PX = 512;
 const HOLE_ALPHA_TEST = 0.5;
+const AR_FACE_BLEED_M = 0.0015;
 const ZOOM_MIN = 0.12;
 const ZOOM_MAX = 4.6;
 
@@ -366,8 +367,9 @@ function addSheetSkins(group, faceMat, backMat, solidMat, width, height, thickne
   group.add(body);
 
   if (c._arExport) {
-    const faceGeo = new THREE.PlaneGeometry(innerW, innerH, 1, 1);
-    faceGeo.translate(0, innerH / 2, 0);
+    const faceH = innerH + AR_FACE_BLEED_M;
+    const faceGeo = new THREE.PlaneGeometry(innerW, faceH, 1, 1);
+    faceGeo.translate(0, faceH / 2, 0);
     const face = new THREE.Mesh(faceGeo, faceMat);
     face.position.set(0, borderM, z);
     group.add(face);
@@ -1443,6 +1445,7 @@ export class Three3DScene {
     const { innerWidthMm, innerHeightMm } = sheetInnerSizeMm(config.width, config.height, config.border);
     const { repeatX, repeatY } = usdzFaceRepeat(config, innerWidthMm, innerHeightMm);
     const { outW, outH } = innerFaceTextureSize(innerWidthMm, innerHeightMm, repeatX, repeatY, maxTextureSize);
+    const faceHM = innerHM + AR_FACE_BLEED_M;
 
     const bakeMat = new THREE.MeshBasicMaterial({
       color: sourceMat.color.clone(),
@@ -1453,12 +1456,14 @@ export class Three3DScene {
     });
 
     const scene = new THREE.Scene();
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(innerWM, innerHM), bakeMat);
+    const faceGeo = new THREE.PlaneGeometry(innerWM, faceHM);
+    faceGeo.translate(0, faceHM / 2, 0);
+    const mesh = new THREE.Mesh(faceGeo, bakeMat);
     scene.add(mesh);
 
-    const camera = new THREE.OrthographicCamera(-innerWM / 2, innerWM / 2, innerHM / 2, -innerHM / 2, 0.01, 10);
-    camera.position.set(0, 0, 1);
-    camera.lookAt(0, 0, 0);
+    const camera = new THREE.OrthographicCamera(-innerWM / 2, innerWM / 2, faceHM, 0, 0.01, 10);
+    camera.position.set(0, faceHM / 2, 1);
+    camera.lookAt(0, faceHM / 2, 0);
 
     const target = new THREE.WebGLRenderTarget(outW, outH, { format: THREE.RGBAFormat, type: THREE.UnsignedByteType });
     const renderer = this.renderer;
