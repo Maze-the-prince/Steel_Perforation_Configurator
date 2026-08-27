@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { computeArDetailCrop } from '../src/ar/detailCrop.js';
 import {
   catalog,
   configViewUrl,
@@ -97,5 +98,10 @@ assert.equal(pbrPresetFor({ material: 'ss304', finish: 'brushed' }).id, 'metal04
 assert.equal(pbrPresetFor({ material: 'alu', finish: 'mill' }).id, 'metal049a_alu');
 assert.equal(pbrPresetFor({ material: 'carbon', finish: 'galvanized' }).id, 'galvanized_steel');
 assert.equal(pbrPresetFor({ material: 'ss304', finish: 'powder' }).id, 'powdercoat_satin');
+
+const detail = computeArDetailCrop(normalizeConfig({ width: 1200, height: 2400, pitch: 12, rowPitch: 24 }));
+assert.ok(detail.detailW >= 0.16 && detail.detailW <= 0.28, 'detail width should stay in swatch range');
+assert.ok(detail.magnify >= 1.15, 'detail swatch should be magnified for AR viewing');
+assert.equal(detail.centerY, 1.2, 'detail crop should center on sheet height');
 
 console.log('SteelWorks V1.1 smoke tests passed.');

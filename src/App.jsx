@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import { Viewer } from './components/Viewer.jsx';
 import { PatternPreview } from './components/PatternPreview.jsx';
 import { AR_DEVICE_HELP, detectPlatform, friendlyArError, immersiveArAvailable, isCompactWeb } from './ar/detect.js';
+import { createUsdzBlobUrl, launchQuickLook } from './ar/usdzExport.js';
 import {
   AD_LINE, CONE_INCLUDED_OPTIONS, CORNER_OPTIONS, FINISHES, FINISH_COLORS, FINISH_COLOR_ORDER, FINISH_COLOR_PREVIEW,
   MATERIALS, MM_PER_IN, PANEL_FORMS, PATTERN_DEFAULTS, PATTERN_GROUPS, PATTERNS,
@@ -23,6 +24,8 @@ const FLATNESS_LABELS = { standard: 'Standard', precision: 'Precision' };
 const EMBED = new URL(location.href).searchParams.get('embed') === '1';
 const SAVE_KEY = 'steel-configurator-saved';
 const PLATFORM = detectPlatform();
+const COMPACT = isCompactWeb();
+const USDZ_DEBOUNCE_MS = COMPACT ? 650 : 400;
 let didTrackView = false;
 
 function embedTargetOrigin() {
@@ -181,11 +184,11 @@ export function App() {
       sceneRef.current.exportUSDZ().then((bytes) => {
         if (cancelled) return;
         if (usdzUrlRef.current) URL.revokeObjectURL(usdzUrlRef.current);
-        const url = URL.createObjectURL(new Blob([bytes], { type: 'model/vnd.usdz+zip' }));
+        const url = createUsdzBlobUrl(bytes);
         usdzUrlRef.current = url;
         setUsdzHref(url);
       }).catch(() => { if (!cancelled) setUsdzHref(''); });
-    }, 400);
+    }, USDZ_DEBOUNCE_MS);
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [sceneReady, sceneBusy, usdzKey]);
 
@@ -737,12 +740,21 @@ export function App() {
 function ArButton({ usdzHref, onLaunch, onHelp }) {
   if (PLATFORM.ios) {
     return (
-      <a className="btn btn-outline" rel="ar" href={usdzHref || '#ar'} onClick={(event) => {
-        if (!usdzHref) {
+      <a
+        className="btn btn-outline"
+        rel="ar"
+        href={usdzHref ? `${usdzHref}#` : '#ar'}
+        onClick={(event) => {
           event.preventDefault();
-          onHelp('Preparing the AR model. Wait a moment, then tap View in AR again.');
-        }
-      }}>View in AR</a>
+          if (!usdzHref) {
+            onHelp('Preparing the AR detail sample. Wait a moment, then tap View in AR again.');
+            return;
+          }
+          launchQuickLook(usdzHref);
+        }}
+      >
+        View in AR
+      </a>
     );
   }
   return (

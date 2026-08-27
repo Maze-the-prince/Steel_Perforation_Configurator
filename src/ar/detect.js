@@ -1,5 +1,8 @@
 export function isCompactWeb() {
   if (typeof window === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  const ios = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (ios) return true;
   const coarse = window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 1;
   const narrow = window.matchMedia('(max-width: 900px)').matches;
   const saveData = Boolean(navigator.connection?.saveData);

@@ -4,7 +4,9 @@ import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
 import { XREstimatedLight } from 'three/examples/jsm/webxr/XREstimatedLight.js';
 import { conicalProfile, cornerTreatmentMm, decorativeOffsets, estimatedHoleCount, finishAppearance, forEachHole, normalizeConfig, PATTERNS, STAGGER_ROW } from '../state/config.js';
 import { bindPbrMaps, loadPbrMaps } from './pbrMaterials.js';
-import { isCompactWeb } from '../ar/detect.js';
+import { computeArDetailCrop } from '../ar/detailCrop.js';
+import { createUsdzMaterial, detailConfigFrom } from '../ar/usdzExport.js';
+import { detectPlatform, isCompactWeb } from '../ar/detect.js';
 
 const _hitPos = new THREE.Vector3();
 
@@ -747,7 +749,7 @@ export class Three3DScene {
     this.formId = '';
     this.maxAnisotropy = 4;
     this.dimHud = null;
-    this.compact = isCompactWeb();
+    this.compact = isCompactWeb() || detectPlatform().ios;
     this.pixelRatioCap = this.compact ? Math.min(devicePixelRatio || 1, 1.15) : Math.min(devicePixelRatio || 1, 1.5);
 
     this.renderer = new THREE.WebGLRenderer({
@@ -1375,15 +1377,80 @@ export class Three3DScene {
     return data;
   }
 
+  buildFlatSheetGroup(c) {
+    const width = c.width / 1000;
+    const height = c.height / 1000;
+    const thickness = Math.max(0.0005, c.thickness / 1000);
+    const appearance = finishAppearance(c);
+    const maps = createSheetMaps(c, Math.min(this.maxAnisotropy, 4));
+    const group = new THREE.Group();
+    group.name = 'AR_DETAIL_SHEET';
+
+    const faceMat = new THREE.MeshPhysicalMaterial({
+      color: appearance.hex,
+      metalness: appearance.metalness,
+      roughness: appearance.roughness,
+      alphaTest: PATTERNS[c.pattern]?.through === false ? 0 : HOLE_ALPHA_TEST,
+      transparent: false,
+      side: THREE.FrontSide,
+      clearcoat: appearance.clearcoat,
+      clearcoatRoughness: c.finish === 'powder' ? 0.38 : 0.28,
+      envMapIntensity: appearance.envMapIntensity
+    });
+    bindPatternMaps(faceMat, null, maps, c);
+    const backMat = faceMat.clone();
+    backMat.envMapIntensity = appearance.envMapIntensity + 0.2;
+    bindPatternMaps(null, backMat, maps, c);
+
+    const solidMat = faceMat.clone();
+    solidMat.alphaMap = null;
+    solidMat.bumpMap = null;
+    solidMat.alphaTest = 0;
+    solidMat.bumpScale = 0;
+
+    addSheetSkins(group, faceMat, backMat, solidMat, width, height, thickness, c);
+    return { group, faceMat, backMat, solidMat, appearance };
+  }
+
+  async prepareGroupForUsdz(group) {
+    const tasks = [];
+    group.traverse((obj) => {
+      if (!obj.isMesh || !obj.material) return;
+      const source = obj.material;
+      const hasHoles = Boolean(source.alphaMap);
+      const colorHex = source.color?.getHexString?.() ? `#${source.color.getHexString()}` : '#b8bcc2';
+      tasks.push(createUsdzMaterial(source, {
+        colorHex,
+        metalness: source.metalness ?? 0.82,
+        roughness: source.roughness ?? 0.34
+      }).then((mat) => {
+        obj.material = mat;
+        if (hasHoles) obj.renderOrder = 1;
+      }));
+    });
+    await Promise.all(tasks);
+  }
+
   async exportUSDZ() {
-    if (!this.model) throw new Error('3D model is still loading');
+    if (!this.model || !this.config) throw new Error('3D model is still loading');
+    const crop = computeArDetailCrop(this.config);
+    const detailConfig = normalizeConfig(detailConfigFrom(this.config, crop));
+    const { group } = this.buildFlatSheetGroup(detailConfig);
+    await this.prepareGroupForUsdz(group);
+
     const wrapper = new THREE.Group();
-    const clone = this.model.clone(true);
-    clone.traverse((obj) => { if (obj.isMesh && obj.material) obj.material = obj.material.clone(); });
-    wrapper.add(clone);
-    wrapper.scale.setScalar(this.scalePercent / 100);
+    wrapper.add(group);
+    wrapper.rotation.x = -Math.PI / 2;
+    wrapper.scale.setScalar(crop.magnify * (this.scalePercent / 100));
+
     const exporter = new USDZExporter();
-    return exporter.parseAsync(wrapper, { quickLookCompatible: true, maxTextureSize: 1200 });
+    const maxTextureSize = this.compact ? 768 : 1024;
+    return exporter.parseAsync(wrapper, {
+      quickLookCompatible: true,
+      maxTextureSize,
+      includeAnchoringProperties: true,
+      ar: { anchoring: { type: 'plane' }, planeAnchoring: { alignment: 'horizontal' } }
+    });
   }
 
   async enterAR({ overlay } = {}) {
