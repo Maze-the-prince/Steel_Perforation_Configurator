@@ -734,16 +734,8 @@ th { color:var(--muted); font-size:9px; text-transform:uppercase; letter-spacing
 }
 
 body.is-touch-tablet .nav-cube,
-body.is-touch-tablet .dim { display: none; }
-body.is-touch-tablet .viewer-tools {
-  left: 10px; top: 10px; transform: none;
-  display: flex; flex-direction: row; align-items: center;
-  gap: 12px; padding: 6px 10px;
-}
-body.is-touch-tablet .viewer-tools button {
-  width: 40px; height: 40px; flex: 0 0 40px;
-  transition: none; touch-action: manipulation;
-}
+body.is-touch-tablet .dim,
+body.is-touch-tablet .viewer-tools { display: none; }
 body.is-touch-tablet .pattern-thumb { width: 64px; height: 64px; right: 10px; bottom: 10px; }
 body.is-touch-tablet .pattern-thumb span { display: none; }
 body.is-touch-tablet .viewer-shell {

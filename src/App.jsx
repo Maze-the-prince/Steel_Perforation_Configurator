@@ -303,8 +303,8 @@ export function App() {
   const borderInvalid = config.border < limits.minBorder;
 
   function applyTool(next) {
+    setTool(next);
     sceneRef.current?.setTool(next);
-    if (!PLATFORM.touchTablet) setTool(next);
   }
 
   function setSize(key, value) {
@@ -377,13 +377,15 @@ export function App() {
 
           <div className="viewer-shell" onPointerDown={() => setOrbitHint(false)}>
             <Viewer config={config} scalePercent={100} onReady={onReady} onError={() => setViewerError(true)} onArState={onArState} onArScale={onArScale} onBusy={onBusy} />
-            <div className={`viewer-tools${PLATFORM.touchTablet ? ' viewer-tools-touch' : ''}`}>
-              <ToolBtn active={!PLATFORM.touchTablet && tool === 'orbit'} title="Rotate the sheet" onClick={() => applyTool('orbit')}><IconOrbit /></ToolBtn>
-              {!PLATFORM.touchTablet && <ToolBtn active={tool === 'zoom'} title="Zoom the view" onClick={() => applyTool('zoom')}><IconZoom /></ToolBtn>}
-              <ToolBtn title="Fit sheet in view" onClick={() => sceneRef.current?.fitView()}><IconFit /></ToolBtn>
-              {!PLATFORM.touchTablet && <ToolBtn active={tool === 'pan'} title="Pan the camera" onClick={() => applyTool('pan')}><IconPan /></ToolBtn>}
-              <ToolBtn title="Reset camera" onClick={() => { applyTool('orbit'); sceneRef.current?.resetView(); }}><IconReset /></ToolBtn>
-            </div>
+            {!PLATFORM.touchTablet && !COMPACT && (
+              <div className="viewer-tools">
+                <ToolBtn active={tool === 'orbit'} title="Rotate the sheet" onClick={() => applyTool('orbit')}><IconOrbit /></ToolBtn>
+                <ToolBtn active={tool === 'zoom'} title="Zoom the view" onClick={() => applyTool('zoom')}><IconZoom /></ToolBtn>
+                <ToolBtn title="Fit sheet in view" onClick={() => sceneRef.current?.fitView()}><IconFit /></ToolBtn>
+                <ToolBtn active={tool === 'pan'} title="Pan the camera" onClick={() => applyTool('pan')}><IconPan /></ToolBtn>
+                <ToolBtn title="Reset camera" onClick={() => { applyTool('orbit'); sceneRef.current?.resetView(); }}><IconReset /></ToolBtn>
+              </div>
+            )}
             <div className="nav-cube">
               <button type="button" title="Top view" onClick={() => sceneRef.current?.setPreset('top')}>Top</button>
               <button type="button" title="Front view" onClick={() => sceneRef.current?.setPreset('front')}>Front</button>
@@ -405,7 +407,7 @@ export function App() {
               )}
             </div>
             {sceneBusy && <div className="viewer-busy">Updating perforation…</div>}
-            {orbitHint && <p className="orbit-caption">Drag to rotate · pinch or scroll to zoom</p>}
+            {orbitHint && <p className="orbit-caption">{PLATFORM.touchTablet || COMPACT ? 'Drag to rotate · pinch to zoom' : 'Drag to rotate · pinch or scroll to zoom'}</p>}
             {viewerError && <p className="viewer-error">3D view could not start. Open this page in Chrome or Safari.</p>}
           </div>
 

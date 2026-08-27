@@ -1387,6 +1387,9 @@ export class Three3DScene {
     const width = c.width / 1000;
     const height = c.height / 1000;
     const thickness = Math.max(0.0005, c.thickness / 1000);
+    const borderM = c.border / 1000;
+    const innerW = Math.max(0.0008, width - 2 * borderM);
+    const innerH = Math.max(0.0008, height - 2 * borderM);
     const appearance = finishAppearance(c);
     const maps = createSheetMaps(c, 4);
     const group = new THREE.Group();
@@ -1409,12 +1412,38 @@ export class Three3DScene {
       side: THREE.FrontSide
     });
 
-    addSheetSkins(group, faceMat, null, solidMat, width, height, thickness, { ...c, _arExport: true });
+    const hw = width / 2;
+    const hh = height / 2;
+    const outline = new THREE.Shape();
+    outline.moveTo(-hw, -hh);
+    outline.lineTo(hw, -hh);
+    outline.lineTo(hw, hh);
+    outline.lineTo(-hw, hh);
+    outline.closePath();
+
+    if (borderM > 0.00025 && innerW > 0.001 && innerH > 0.001) {
+      const ihw = innerW / 2;
+      const ihh = innerH / 2;
+      const hole = new THREE.Path();
+      hole.moveTo(-ihw, -ihh);
+      hole.lineTo(ihw, -ihh);
+      hole.lineTo(ihw, ihh);
+      hole.lineTo(-ihw, ihh);
+      hole.closePath();
+      outline.holes.push(hole);
+    }
+
+    const frameGeo = new THREE.ExtrudeGeometry(outline, { depth: thickness, bevelEnabled: false });
+    frameGeo.rotateX(-Math.PI / 2);
+    group.add(new THREE.Mesh(frameGeo, solidMat));
+
+    const faceGeo = new THREE.PlaneGeometry(innerW, innerH);
+    faceGeo.rotateX(-Math.PI / 2);
+    const face = new THREE.Mesh(faceGeo, faceMat);
+    face.position.y = thickness + 0.0002;
+    group.add(face);
 
     group.userData.appearance = appearance;
-    group.rotation.x = -Math.PI / 2;
-    group.position.y = thickness / 2;
-
     return { group, appearance };
   }
 
