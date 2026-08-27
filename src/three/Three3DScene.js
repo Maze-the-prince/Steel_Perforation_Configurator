@@ -4,8 +4,7 @@ import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
 import { XREstimatedLight } from 'three/examples/jsm/webxr/XREstimatedLight.js';
 import { conicalProfile, cornerTreatmentMm, decorativeOffsets, estimatedHoleCount, finishAppearance, forEachHole, normalizeConfig, PATTERNS, STAGGER_ROW } from '../state/config.js';
 import { bindPbrMaps, loadPbrMaps } from './pbrMaterials.js';
-import { computeArDetailCrop } from '../ar/detailCrop.js';
-import { createUsdzMaterial, detailConfigFrom } from '../ar/usdzExport.js';
+import { createUsdzMaterial } from '../ar/usdzExport.js';
 import { detectPlatform, isCompactWeb } from '../ar/detect.js';
 
 const _hitPos = new THREE.Vector3();
@@ -1393,7 +1392,7 @@ export class Three3DScene {
     const appearance = finishAppearance(c);
     const maps = createSheetMaps(c, 4);
     const group = new THREE.Group();
-    group.name = 'AR_DETAIL_SHEET';
+    group.name = 'AR_SHEET';
 
     const faceMat = new THREE.MeshStandardMaterial({
       color: appearance.hex,
@@ -1412,37 +1411,32 @@ export class Three3DScene {
       side: THREE.FrontSide
     });
 
-    const hw = width / 2;
-    const hh = height / 2;
-    const outline = new THREE.Shape();
-    outline.moveTo(-hw, -hh);
-    outline.lineTo(hw, -hh);
-    outline.lineTo(hw, hh);
-    outline.lineTo(-hw, hh);
-    outline.closePath();
-
+    const outline = sheetOutlineShape(width, height, c);
     if (borderM > 0.00025 && innerW > 0.001 && innerH > 0.001) {
-      const ihw = innerW / 2;
-      const ihh = innerH / 2;
       const hole = new THREE.Path();
-      hole.moveTo(-ihw, -ihh);
-      hole.lineTo(ihw, -ihh);
-      hole.lineTo(ihw, ihh);
-      hole.lineTo(-ihw, ihh);
+      const hw = innerW / 2;
+      const y0 = borderM;
+      hole.moveTo(-hw, y0);
+      hole.lineTo(-hw, y0 + innerH);
+      hole.lineTo(hw, y0 + innerH);
+      hole.lineTo(hw, y0);
       hole.closePath();
       outline.holes.push(hole);
     }
 
-    const frameGeo = new THREE.ExtrudeGeometry(outline, { depth: thickness, bevelEnabled: false });
-    frameGeo.rotateX(-Math.PI / 2);
+    const frameGeo = new THREE.ExtrudeGeometry(outline, {
+      depth: thickness,
+      bevelEnabled: false,
+      curveSegments: c.corner === 'radius' ? 14 : 1
+    });
+    frameGeo.translate(0, 0, -thickness / 2);
     group.add(new THREE.Mesh(frameGeo, solidMat));
 
-    const faceGeo = new THREE.PlaneGeometry(innerW, innerH);
-    faceGeo.rotateX(-Math.PI / 2);
-    const face = new THREE.Mesh(faceGeo, faceMat);
-    face.position.y = thickness + 0.0002;
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(innerW, innerH), faceMat);
+    face.position.set(0, height / 2, thickness / 2 + 0.0001);
     group.add(face);
 
+    group.position.y = -height / 2;
     group.userData.appearance = appearance;
     return { group, appearance };
   }
@@ -1467,25 +1461,37 @@ export class Three3DScene {
   async exportUSDZ() {
     if (!this.model || !this.config) throw new Error('3D model is still loading');
     const exporter = new USDZExporter();
-    const maxTextureSize = this.compact ? 768 : 1024;
-    const options = { quickLookCompatible: true, maxTextureSize };
+    const options = {
+      quickLookCompatible: true,
+      maxTextureSize: this.compact ? 768 : 1024,
+      ar: {
+        anchoring: { type: 'plane' },
+        planeAnchoring: { alignment: 'vertical' }
+      }
+    };
+    const arConfig = normalizeConfig({
+      ...this.config,
+      panelForm: 'flat',
+      flangeDepth: 0,
+      bendAngle: 0,
+      bendRadius: 0
+    });
 
     try {
-      const crop = computeArDetailCrop(this.config);
-      const detailConfig = normalizeConfig(detailConfigFrom(this.config, crop));
-      const { group } = this.buildArSheetGroup(detailConfig);
+      const { group } = this.buildArSheetGroup(arConfig);
       await this.prepareGroupForUsdz(group);
       const wrapper = new THREE.Group();
       wrapper.add(group);
-      wrapper.scale.setScalar(crop.magnify * (this.scalePercent / 100));
+      wrapper.scale.setScalar(this.scalePercent / 100);
       return await exporter.parseAsync(wrapper, options);
     } catch (err) {
-      console.warn('Detail USDZ export failed, using full model fallback', err);
+      console.warn('AR sheet export failed, using model clone fallback', err);
       const wrapper = new THREE.Group();
       const clone = this.model.clone(true);
       clone.traverse((obj) => { if (obj.isMesh && obj.material) obj.material = obj.material.clone(); });
       wrapper.add(clone);
-      wrapper.scale.setScalar(this.fitScale * (this.scalePercent / 100));
+      wrapper.position.y = -(this.config.height / 1000) / 2;
+      wrapper.scale.setScalar(this.scalePercent / 100);
       return exporter.parseAsync(wrapper, options);
     }
   }
