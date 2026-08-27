@@ -365,6 +365,13 @@ function addSheetSkins(group, faceMat, backMat, solidMat, width, height, thickne
   body.receiveShadow = true;
   group.add(body);
 
+  if (c._arExport) {
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(width, height, 1, 1), faceMat);
+    face.position.set(0, height / 2, z + 0.002);
+    group.add(face);
+    return;
+  }
+
   const addFace = (mat, sign) => {
     const inner = new THREE.Mesh(new THREE.PlaneGeometry(innerW, innerH, 1, 1), mat);
     inner.position.set(0, height / 2, sign * z);
@@ -1417,29 +1424,23 @@ export class Three3DScene {
       if (!obj.isMesh) return;
       if (obj.geometry?.type === 'PlaneGeometry') {
         obj.name = 'AR_FACE';
-        obj.position.z += 0.002;
         obj.renderOrder = 2;
       } else if (obj.geometry?.type === 'ExtrudeGeometry') {
         obj.name = 'AR_FRAME';
       }
     });
 
-    group.rotation.x = -Math.PI / 2;
     group.userData.appearance = appearance;
     group.userData.arConfig = c;
     group.userData.innerW = innerW;
     group.userData.innerH = innerH;
-    group.userData.innerWidthMm = innerW * 1000;
-    group.userData.innerHeightMm = innerH * 1000;
     return { group, appearance, innerW, innerH };
   }
 
-  async prepareGroupForUsdz(group, maxTextureSize = 1024) {
+  async prepareGroupForUsdz(group, maxTextureSize = 4096) {
     const appearance = group.userData.appearance || {};
     const colorHex = appearance.hex || '#b8bcc2';
     const config = group.userData.arConfig || null;
-    const innerWidthMm = group.userData.innerWidthMm || 0;
-    const innerHeightMm = group.userData.innerHeightMm || 0;
     const tasks = [];
     group.traverse((obj) => {
       if (!obj.isMesh || !obj.material) return;
@@ -1452,8 +1453,9 @@ export class Three3DScene {
         maxTextureSize,
         perforated: isFace,
         config: isFace ? config : null,
-        innerWidthMm: isFace ? innerWidthMm : 0,
-        innerHeightMm: isFace ? innerHeightMm : 0
+        widthMm: isFace ? config?.width : 0,
+        heightMm: isFace ? config?.height : 0,
+        borderMm: isFace ? config?.border : 0
       }).then((mat) => {
         obj.material = mat;
       }));
@@ -1464,7 +1466,7 @@ export class Three3DScene {
   async exportUSDZ(exportConfig = this.config) {
     if (!this.model || !exportConfig) throw new Error('3D model is still loading');
     const exporter = new USDZExporter();
-    const maxTextureSize = this.compact ? 768 : 1024;
+    const maxTextureSize = this.compact ? 2048 : 4096;
     const options = {
       quickLookCompatible: true,
       maxTextureSize,
@@ -1486,14 +1488,12 @@ export class Three3DScene {
       await this.prepareGroupForUsdz(group, maxTextureSize);
       const wrapper = new THREE.Group();
       wrapper.name = 'AR_WRAPPER';
-      wrapper.rotation.x = Math.PI / 2;
       wrapper.add(group);
       wrapper.scale.setScalar(this.scalePercent / 100);
       return await exporter.parseAsync(wrapper, options);
     } catch (err) {
       console.warn('AR sheet export failed, using model clone fallback', err);
       const wrapper = new THREE.Group();
-      wrapper.rotation.x = Math.PI / 2;
       const clone = this.model.clone(true);
       clone.traverse((obj) => { if (obj.isMesh && obj.material) obj.material = obj.material.clone(); });
       wrapper.add(clone);

@@ -21,71 +21,76 @@ export function usdzFaceRepeat(config, innerWidthMm, innerHeightMm) {
   };
 }
 
-/** Bake alphaMap holes into a single tiled RGBA map that Quick Look can render. */
-export async function bakeUsdzDiffuseMap(material, colorHex = '#b8bcc2', {
-  maxSize = 1024,
-  config = null,
-  innerWidthMm = 0,
-  innerHeightMm = 0
-} = {}) {
+function resolveColor(colorHex) {
+  return new THREE.Color(colorHex?.startsWith('#') ? colorHex : `#${colorHex || 'b8bcc2'}`);
+}
+
+function outputSizeForSheet(widthMm, heightMm, repeatX, repeatY, maxSize) {
+  const aspect = widthMm / heightMm;
+  const pxPerPitch = Math.min(48, Math.max(22, Math.floor(maxSize / Math.max(repeatX, repeatY, 1))));
+  let outH = Math.min(maxSize, Math.max(768, Math.round(pxPerPitch * repeatY)));
+  let outW = Math.min(maxSize, Math.max(768, Math.round(outH * aspect)));
+  if (outW > maxSize) {
+    outW = maxSize;
+    outH = Math.max(512, Math.round(maxSize / aspect));
+  }
+  return { outW, outH, pxPerPitch };
+}
+
+/** Bake a full-sheet RGBA map with solid border bands and perforated inner zone. */
+export async function bakeFullSheetUsdzMap(material, config, widthMm, heightMm, borderMm, colorHex, { maxSize = 4096 } = {}) {
   const alphaMap = material.alphaMap;
   if (!alphaMap?.image) return null;
 
   await ensureTextureImage(alphaMap);
   const src = alphaMap.image;
-  const tileW = src.width || 512;
-  const tileH = src.height || 512;
-  let repeatX;
-  let repeatY;
-  if (config && innerWidthMm > 0 && innerHeightMm > 0) {
-    ({ repeatX, repeatY } = usdzFaceRepeat(config, innerWidthMm, innerHeightMm));
-  } else {
-    repeatX = Math.max(0.001, alphaMap.repeat?.x || 1);
-    repeatY = Math.max(0.001, alphaMap.repeat?.y || 1);
+  const innerW = Math.max(1, widthMm - 2 * borderMm);
+  const innerH = Math.max(1, heightMm - 2 * borderMm);
+  const { repeatX, repeatY } = usdzFaceRepeat(config, innerW, innerH);
+  const { outW, outH } = outputSizeForSheet(widthMm, heightMm, repeatX, repeatY, maxSize);
+  const borderPxX = Math.round(outW * (borderMm / widthMm));
+  const borderPxY = Math.round(outH * (borderMm / heightMm));
+  const innerPxW = Math.max(16, outW - 2 * borderPxX);
+  const innerPxH = Math.max(16, outH - 2 * borderPxY);
+  const color = resolveColor(colorHex);
+  const r = Math.round(color.r * 255);
+  const g = Math.round(color.g * 255);
+  const b = Math.round(color.b * 255);
+
+  const maskCanvas = document.createElement('canvas');
+  maskCanvas.width = innerPxW;
+  maskCanvas.height = innerPxH;
+  const mctx = maskCanvas.getContext('2d');
+  mctx.fillStyle = '#ffffff';
+  mctx.fillRect(0, 0, innerPxW, innerPxH);
+  mctx.imageSmoothingEnabled = true;
+  mctx.imageSmoothingQuality = 'high';
+  const cellW = innerPxW / repeatX;
+  const cellH = innerPxH / repeatY;
+  for (let row = 0; row < Math.ceil(repeatY); row += 1) {
+    for (let col = 0; col < Math.ceil(repeatX); col += 1) {
+      mctx.drawImage(src, col * cellW, row * cellH, cellW, cellH);
+    }
   }
 
-  const outAspect = (tileW * repeatX) / (tileH * repeatY);
-  let outW;
-  let outH;
-  if (outAspect >= 1) {
-    outW = maxSize;
-    outH = Math.max(32, Math.round(maxSize / outAspect));
-  } else {
-    outH = maxSize;
-    outW = Math.max(32, Math.round(maxSize * outAspect));
+  const mask = mctx.getImageData(0, 0, innerPxW, innerPxH);
+  const innerOut = mctx.createImageData(innerPxW, innerPxH);
+  for (let i = 0; i < mask.data.length; i += 4) {
+    const lum = mask.data[i];
+    innerOut.data[i] = r;
+    innerOut.data[i + 1] = g;
+    innerOut.data[i + 2] = b;
+    innerOut.data[i + 3] = lum;
   }
+  mctx.putImageData(innerOut, 0, 0);
 
   const canvas = document.createElement('canvas');
   canvas.width = outW;
   canvas.height = outH;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
   ctx.fillRect(0, 0, outW, outH);
-  const cellW = outW / repeatX;
-  const cellH = outH / repeatY;
-  const cols = Math.ceil(repeatX);
-  const rows = Math.ceil(repeatY);
-
-  for (let row = 0; row < rows; row += 1) {
-    for (let col = 0; col < cols; col += 1) {
-      ctx.drawImage(src, col * cellW, row * cellH, cellW, cellH);
-    }
-  }
-
-  const mask = ctx.getImageData(0, 0, outW, outH);
-  const color = new THREE.Color(colorHex);
-  const r = Math.round(color.r * 255);
-  const g = Math.round(color.g * 255);
-  const b = Math.round(color.b * 255);
-  const out = ctx.createImageData(outW, outH);
-  for (let i = 0; i < mask.data.length; i += 4) {
-    const lum = mask.data[i];
-    out.data[i] = r;
-    out.data[i + 1] = g;
-    out.data[i + 2] = b;
-    out.data[i + 3] = lum;
-  }
-  ctx.putImageData(out, 0, 0);
+  ctx.drawImage(maskCanvas, borderPxX, borderPxY);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -113,11 +118,12 @@ export async function createUsdzMaterial(source, {
   colorHex,
   metalness = 0.82,
   roughness = 0.34,
-  maxTextureSize = 1024,
+  maxTextureSize = 4096,
   perforated = false,
   config = null,
-  innerWidthMm = 0,
-  innerHeightMm = 0
+  widthMm = 0,
+  heightMm = 0,
+  borderMm = 0
 } = {}) {
   const hex = colorHex?.startsWith('#') ? colorHex : `#${colorHex || 'b8bcc2'}`;
   const mat = new THREE.MeshStandardMaterial({
@@ -130,18 +136,13 @@ export async function createUsdzMaterial(source, {
     alphaTest: 0
   });
 
-  const baked = perforated
-    ? await bakeUsdzDiffuseMap(source, hex, {
-      maxSize: maxTextureSize,
-      config,
-      innerWidthMm,
-      innerHeightMm
-    })
+  const baked = perforated && config && widthMm > 0 && heightMm > 0
+    ? await bakeFullSheetUsdzMap(source, config, widthMm, heightMm, borderMm, hex, { maxSize: maxTextureSize })
     : null;
   if (baked) {
     mat.map = baked;
     mat.transparent = false;
-    mat.alphaTest = 0.4;
+    mat.alphaTest = 0.35;
     mat.depthWrite = true;
   } else if (source.map) {
     mat.map = source.map;

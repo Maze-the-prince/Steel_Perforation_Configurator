@@ -18,4 +18,12 @@ assert.notEqual(slot.repeatY, round.repeatY, 'slot row pitch should change verti
 const smallPitch = usdzFaceRepeat({ ...base, pattern: 'round60', pitch: 6 }, 1160, 2360);
 assert.ok(smallPitch.repeatX > round.repeatX, 'smaller pitch should increase horizontal repeat');
 
+const fullW = base.width;
+const fullH = base.height;
+const border = base.border;
+const innerW = fullW - border * 2;
+const innerH = fullH - border * 2;
+assert.ok(innerW > 0 && innerH > 0, 'inner sheet dimensions should be positive');
+assert.ok(Math.abs((innerW / round.tileW) - round.repeatX) < 0.001, 'repeat should match inner width over pitch');
+
 console.log('AR USDZ export tests passed.');
