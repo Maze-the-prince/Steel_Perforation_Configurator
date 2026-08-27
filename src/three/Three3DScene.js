@@ -487,56 +487,6 @@ function mergeIndexedGeometries(geos) {
   return geo;
 }
 
-function instancedMeshToMergedMesh(instanced) {
-  const count = instanced.count;
-  if (!count) return null;
-  const src = instanced.geometry;
-  const posAttr = src.attributes.position;
-  const srcVerts = posAttr.count;
-  if (!srcVerts) return null;
-
-  const matrix = new THREE.Matrix4();
-  const point = new THREE.Vector3();
-  const mergedPos = new Float32Array(srcVerts * count * 3);
-  let write = 0;
-
-  for (let i = 0; i < count; i += 1) {
-    instanced.getMatrixAt(i, matrix);
-    for (let v = 0; v < srcVerts; v += 1) {
-      point.fromBufferAttribute(posAttr, v).applyMatrix4(matrix);
-      mergedPos[write] = point.x;
-      mergedPos[write + 1] = point.y;
-      mergedPos[write + 2] = point.z;
-      write += 3;
-    }
-  }
-
-  let mergedIndex = null;
-  const srcIndex = src.index;
-  if (srcIndex) {
-    const srcArr = srcIndex.array;
-    mergedIndex = srcArr.BYTES_PER_ELEMENT === 4 || srcVerts * count > 65535
-      ? new Uint32Array(srcArr.length * count)
-      : new Uint16Array(srcArr.length * count);
-    let dst = 0;
-    for (let i = 0; i < count; i += 1) {
-      const base = i * srcVerts;
-      for (let j = 0; j < srcArr.length; j += 1) {
-        mergedIndex[dst++] = srcArr[j] + base;
-      }
-    }
-  }
-
-  const mergedGeo = new THREE.BufferGeometry();
-  mergedGeo.setAttribute('position', new THREE.BufferAttribute(mergedPos, 3));
-  if (mergedIndex) mergedGeo.setIndex(mergedIndex);
-  mergedGeo.computeVertexNormals();
-
-  const mat = instanced.material.clone();
-  mat.side = THREE.FrontSide;
-  return new THREE.Mesh(mergedGeo, mat);
-}
-
 function expandInstancedMeshesForExport(root) {
   const instancedMeshes = [];
   root.traverse((obj) => {
@@ -545,12 +495,25 @@ function expandInstancedMeshesForExport(root) {
   instancedMeshes.forEach((instanced) => {
     const parent = instanced.parent;
     if (!parent) return;
-    const merged = instancedMeshToMergedMesh(instanced);
-    if (!merged) return;
-    merged.name = 'AR_FORMED';
+    const formed = new THREE.Group();
+    formed.name = 'AR_FORMED';
+    const matrix = new THREE.Matrix4();
+    const mat = instanced.material.clone();
+    mat.side = THREE.FrontSide;
+    mat.transparent = false;
+    mat.depthWrite = true;
+    const geo = instanced.geometry;
+    for (let i = 0; i < instanced.count; i += 1) {
+      instanced.getMatrixAt(i, matrix);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.matrix.copy(matrix);
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrix();
+      mesh.name = 'AR_FORMED';
+      formed.add(mesh);
+    }
     parent.remove(instanced);
-    instanced.geometry?.dispose?.();
-    parent.add(merged);
+    parent.add(formed);
   });
 }
 
@@ -1509,7 +1472,7 @@ export class Three3DScene {
     });
 
     addSheetSkins(group, faceMat, backMat, solidMat, width, height, thickness, { ...c, _arExport: true });
-    const formedGroup = addFormedFeatures(group, c, width, height, thickness, solidMat, { zLift: 0.0002 });
+    const formedGroup = addFormedFeatures(group, c, width, height, thickness, solidMat, { zLift: 0.0003 });
     if (formedGroup) expandInstancedMeshesForExport(formedGroup);
 
     group.traverse((obj) => {
@@ -1562,6 +1525,19 @@ export class Three3DScene {
         }));
         return;
       }
+      if (obj.name === 'AR_FORMED') {
+        tasks.push(Promise.resolve().then(() => {
+          obj.material = new THREE.MeshStandardMaterial({
+            color: colorHex,
+            metalness: Math.min(1, (source.metalness ?? appearance.metalness ?? 0.82) + 0.05),
+            roughness: Math.max(0.12, (source.roughness ?? appearance.roughness ?? 0.34) - 0.06),
+            transparent: false,
+            depthWrite: true,
+            side: THREE.FrontSide
+          });
+        }));
+        return;
+      }
       tasks.push(createUsdzMaterial(source, {
         colorHex,
         metalness: source.metalness ?? appearance.metalness ?? 0.82,
@@ -1608,6 +1584,7 @@ export class Three3DScene {
       group = null;
       wrapper.scale.setScalar(this.scalePercent / 100);
       wrapper.userData.exportFingerprint = usdzExportFingerprint(arConfig);
+      wrapper.updateMatrixWorld(true);
       const bytes = await exporter.parseAsync(wrapper, options);
       if (exportGen !== this.exportGen) throw new Error('stale-export');
       return bytes;
