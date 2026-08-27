@@ -4,7 +4,7 @@ import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
 import { XREstimatedLight } from 'three/examples/jsm/webxr/XREstimatedLight.js';
 import { conicalProfile, cornerTreatmentMm, decorativeOffsets, estimatedHoleCount, finishAppearance, forEachHole, normalizeConfig, PATTERNS, STAGGER_ROW } from '../state/config.js';
 import { bindPbrMaps, loadPbrMaps } from './pbrMaterials.js';
-import { createUsdzMaterial } from '../ar/usdzExport.js';
+import { createUsdzMaterial, sheetInnerSizeMm, usdzExportFingerprint } from '../ar/usdzExport.js';
 import { detectPlatform, isCompactWeb } from '../ar/detect.js';
 
 const _hitPos = new THREE.Vector3();
@@ -366,8 +366,8 @@ function addSheetSkins(group, faceMat, backMat, solidMat, width, height, thickne
   group.add(body);
 
   if (c._arExport) {
-    const face = new THREE.Mesh(new THREE.PlaneGeometry(width, height, 1, 1), faceMat);
-    face.position.set(0, height / 2, z + 0.002);
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(innerW, innerH, 1, 1), faceMat);
+    face.position.set(0, height / 2, z);
     group.add(face);
     return;
   }
@@ -381,8 +381,6 @@ function addSheetSkins(group, faceMat, backMat, solidMat, width, height, thickne
   };
   addFace(faceMat, 1);
   if (backMat) addFace(backMat, -1);
-
-  if (c._arExport) return;
 
   const outlineLines = new THREE.LineSegments(
     new THREE.EdgesGeometry(bodyGeo, 18),
@@ -1424,14 +1422,16 @@ export class Three3DScene {
       if (!obj.isMesh) return;
       if (obj.geometry?.type === 'PlaneGeometry') {
         obj.name = 'AR_FACE';
-        obj.renderOrder = 2;
+        obj.renderOrder = 1;
       } else if (obj.geometry?.type === 'ExtrudeGeometry') {
         obj.name = 'AR_FRAME';
+        obj.renderOrder = 2;
       }
     });
 
     group.userData.appearance = appearance;
     group.userData.arConfig = c;
+    group.userData.exportFingerprint = usdzExportFingerprint(c);
     group.userData.innerW = innerW;
     group.userData.innerH = innerH;
     return { group, appearance, innerW, innerH };
@@ -1441,6 +1441,9 @@ export class Three3DScene {
     const appearance = group.userData.appearance || {};
     const colorHex = appearance.hex || '#b8bcc2';
     const config = group.userData.arConfig || null;
+    const { innerWidthMm, innerHeightMm } = config
+      ? sheetInnerSizeMm(config.width, config.height, config.border)
+      : { innerWidthMm: 0, innerHeightMm: 0 };
     const tasks = [];
     group.traverse((obj) => {
       if (!obj.isMesh || !obj.material) return;
@@ -1453,9 +1456,8 @@ export class Three3DScene {
         maxTextureSize,
         perforated: isFace,
         config: isFace ? config : null,
-        widthMm: isFace ? config?.width : 0,
-        heightMm: isFace ? config?.height : 0,
-        borderMm: isFace ? config?.border : 0
+        innerWidthMm: isFace ? innerWidthMm : 0,
+        innerHeightMm: isFace ? innerHeightMm : 0
       }).then((mat) => {
         obj.material = mat;
       }));
@@ -1490,6 +1492,7 @@ export class Three3DScene {
       wrapper.name = 'AR_WRAPPER';
       wrapper.add(group);
       wrapper.scale.setScalar(this.scalePercent / 100);
+      wrapper.userData.exportFingerprint = usdzExportFingerprint(arConfig);
       return await exporter.parseAsync(wrapper, options);
     } catch (err) {
       console.warn('AR sheet export failed, using model clone fallback', err);

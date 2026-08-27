@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import { Viewer } from './components/Viewer.jsx';
 import { PatternPreview } from './components/PatternPreview.jsx';
 import { AR_DEVICE_HELP, detectPlatform, friendlyArError, immersiveArAvailable, isCompactWeb } from './ar/detect.js';
+import { usdzExportFingerprint } from './ar/usdzExport.js';
 import {
   AD_LINE, CONE_INCLUDED_OPTIONS, CORNER_OPTIONS, FINISHES, FINISH_COLORS, FINISH_COLOR_ORDER, FINISH_COLOR_PREVIEW,
   MATERIALS, MM_PER_IN, PANEL_FORMS, PATTERN_DEFAULTS, PATTERN_GROUPS, PATTERNS,
@@ -82,7 +83,9 @@ export function App() {
   const overlayRef = useRef(null);
   const dimHudRef = useRef({ width: null, height: null, thickness: null });
   const usdzUrlRef = useRef('');
+  const usdzExportKeyRef = useRef('');
   const quickLookRef = useRef(null);
+  const [usdzReady, setUsdzReady] = useState(false);
   const toastTimer = useRef(0);
   const sku = useMemo(() => skuFor(config, brand.skuPrefix), [config, brand.skuPrefix]);
   const openArea = useMemo(() => openAreaPercent(config), [config]);
@@ -178,19 +181,17 @@ export function App() {
   }, []);
   const onBusy = useCallback((busy) => setSceneBusy(Boolean(busy)), []);
 
-  const usdzKey = [
-    config.width, config.height, config.thickness, config.material, config.finish, config.color,
-    config.pattern, config.holeSize, config.slotLength, config.pitch, config.rowPitch, config.border,
-    config.coneAngle, config.panelForm, config.flangeDepth, config.bendAngle, config.bendRadius,
-    config.corner, config.cornerRadius
-  ].join('|');
+  const usdzKey = usdzExportFingerprint(config);
 
   useEffect(() => () => {
     if (usdzUrlRef.current) URL.revokeObjectURL(usdzUrlRef.current);
   }, []);
 
   useEffect(() => {
-    if (!PLATFORM.ios || !sceneReady || !sceneRef.current || sceneBusy) return undefined;
+    if (!PLATFORM.ios || !sceneReady || !sceneRef.current) return undefined;
+    setUsdzReady(false);
+    if (quickLookRef.current) quickLookRef.current.dataset.ready = '0';
+    if (sceneBusy) return undefined;
     let cancelled = false;
     const timer = window.setTimeout(() => {
       sceneRef.current.exportUSDZ(config).then((bytes) => {
@@ -198,12 +199,15 @@ export function App() {
         if (usdzUrlRef.current) URL.revokeObjectURL(usdzUrlRef.current);
         const url = URL.createObjectURL(new Blob([bytes], { type: 'model/vnd.usdz+zip' }));
         usdzUrlRef.current = url;
+        usdzExportKeyRef.current = usdzKey;
+        setUsdzReady(true);
         if (quickLookRef.current) {
           quickLookRef.current.href = url;
           quickLookRef.current.dataset.ready = '1';
         }
       }).catch((err) => {
         console.error('USDZ export failed', err);
+        setUsdzReady(false);
         if (quickLookRef.current) quickLookRef.current.dataset.ready = '0';
       });
     }, USDZ_DEBOUNCE_MS);
@@ -406,9 +410,18 @@ export function App() {
                 <button className="btn btn-outline" type="button" onClick={startAR}>View in AR</button>
               )}
               {PLATFORM.ios && (
-                <a ref={quickLookRef} className="btn btn-outline ar-link" rel="ar" href="#quicklook">
+                <a
+                  ref={quickLookRef}
+                  className={`btn btn-outline ar-link${usdzReady ? '' : ' is-pending'}`}
+                  rel="ar"
+                  href="#quicklook"
+                  aria-disabled={!usdzReady}
+                  onClick={(event) => {
+                    if (!usdzReady || usdzExportKeyRef.current !== usdzKey) event.preventDefault();
+                  }}
+                >
                   <img className="ar-icon" alt="" src={AR_POSTER} />
-                  View in AR
+                  {usdzReady ? 'View in AR' : 'Preparing AR…'}
                 </a>
               )}
             </div>
