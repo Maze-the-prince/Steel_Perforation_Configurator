@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Three3DScene } from '../three/Three3DScene.js';
 import { isCompactWeb } from '../ar/detect.js';
 

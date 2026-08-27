@@ -7,7 +7,10 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   base: './',
-  plugins: [react()],
+  plugins: [react({ jsxRuntime: 'automatic' })],
+  esbuild: {
+    jsx: 'automatic'
+  },
   publicDir: 'public',
   build: {
     outDir: 'docs',

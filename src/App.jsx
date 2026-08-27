@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Viewer } from './components/Viewer.jsx';
 import { PatternPreview } from './components/PatternPreview.jsx';
 import { AR_DEVICE_HELP, detectPlatform, friendlyArError, immersiveArAvailable, isCompactWeb } from './ar/detect.js';
