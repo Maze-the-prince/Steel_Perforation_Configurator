@@ -5,10 +5,10 @@ import { fileURLToPath } from 'node:url';
 const root = path.dirname(fileURLToPath(import.meta.url));
 const refDir = path.join(root, 'references', 'usdz');
 
-/** Serve and copy Blender reference USDZ files for iOS Quick Look. */
-export function referenceUsdzPlugin() {
+/** Dev server only — reference USDZ files are not deployed for Quick Look. */
+export function referenceUsdzDevPlugin() {
   return {
-    name: 'reference-usdz-static',
+    name: 'reference-usdz-dev-only',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const reqPath = req.url?.split('?')[0] || '';
@@ -17,18 +17,8 @@ export function referenceUsdzPlugin() {
         const file = path.join(refDir, match[1]);
         if (!fs.existsSync(file)) return next();
         res.setHeader('Content-Type', 'model/vnd.usdz+zip');
-        res.setHeader('Cache-Control', 'public, max-age=3600');
         fs.createReadStream(file).pipe(res);
       });
-    },
-    closeBundle() {
-      const outDir = path.join(root, 'docs', 'references', 'usdz');
-      if (!fs.existsSync(refDir)) return;
-      fs.mkdirSync(outDir, { recursive: true });
-      for (const name of fs.readdirSync(refDir)) {
-        if (!name.endsWith('.usdz') || name.startsWith('_')) continue;
-        fs.copyFileSync(path.join(refDir, name), path.join(outDir, name));
-      }
     }
   };
 }

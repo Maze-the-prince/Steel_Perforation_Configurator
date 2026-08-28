@@ -14,6 +14,7 @@
     "test:patterns": "node tests/patterns.mjs",
     "test:ar-usdz": "node tests/ar-usdz.mjs",
     "test:reference-usdz": "node tests/reference-usdz.mjs",
+    "calibrate:reference": "node scripts/calibrate-from-reference.mjs",
     "bake:reference-glb": "node scripts/bake-reference-glbs.mjs",
     "test": "npm run test:smoke && npm run test:patterns && npm run test:ar-usdz && npm run test:reference-usdz"
   },

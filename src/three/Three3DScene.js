@@ -6,7 +6,7 @@ import { XREstimatedLight } from 'three/examples/jsm/webxr/XREstimatedLight.js';
 import { conicalProfile, cornerTreatmentMm, decorativeOffsets, estimatedHoleCount, finishAppearance, forEachHole, normalizeConfig, PATTERNS, STAGGER_ROW } from '../state/config.js';
 import { bindPbrMaps, loadPbrMaps } from './pbrMaterials.js';
 import { createUsdzMaterial, usdzExportFingerprint, arFaceHeightM, bakeArFaceUsdzMap, applyArFaceBleedUv, expandInstancedMeshesForUsdz } from '../ar/usdzExport.js';
-import { exportScaledReferenceUsdz, hasReferenceUsdzPattern } from '../ar/referenceUsdzExport.js';
+import { getFormedExporterTune } from '../ar/formedCalibration.js';
 import { detectPlatform, isCompactWeb } from '../ar/detect.js';
 
 const _hitPos = new THREE.Vector3();
@@ -578,12 +578,12 @@ function embossedDiamondGeometry(wallDepth = 0.45) {
   return mergeIndexedGeometries([boss, seal, walls]);
 }
 
-function bridgeHoodGeometry(c) {
-  const slotW = c.holeSize / 1000;
+function bridgeHoodGeometry(c, tune = {}) {
+  const slotW = (c.holeSize / 1000) * (tune.slotWidth ?? 1);
   const width = slotW * 0.84;
-  const length = Math.max(c.holeSize, c.slotLength) / 1000;
+  const length = (Math.max(c.holeSize, c.slotLength) / 1000) * (tune.hoodLength ?? 1);
   const metal = Math.max(0.0004, Math.min(c.thickness / 1000, slotW * 0.16));
-  const rise = slotW * 0.72;
+  const rise = slotW * 0.72 * (tune.hoodRise ?? 1);
   const top = length * 0.62;
   const y0 = -width / 2;
   const y1 = width / 2;
@@ -616,11 +616,11 @@ function bridgeHoodGeometry(c) {
   return geo;
 }
 
-function perfoconConeGeometry(c, segments = 16) {
+function perfoconConeGeometry(c, segments = 16, tune = {}) {
   const cone = conicalProfile(c);
   const rIn = cone.entrance / 2000;
   const rHead = cone.head / 2000;
-  const h = Math.max(0.0008, cone.height / 1000);
+  const h = Math.max(0.0008, (cone.height / 1000) * (tune.coneHeight ?? 1));
   const lip = Math.max(0.00012, Math.min((rHead - rIn) * 0.22, rIn * 0.18));
   const underHead = Math.max(0.00005, (rHead - rIn) * 0.1);
   const pts = [
@@ -639,7 +639,9 @@ function perfoconConeGeometry(c, segments = 16) {
 function addFormedFeatures(group, c, width, height, thickness, mat, { zLift = 0, arExport = false } = {}) {
   const kind = PATTERNS[c.pattern]?.kind;
   if (!isExtrudedForm(kind)) return null;
-  const count = Math.min(FORMED_INSTANCE_LIMIT, estimatedHoleCount(c));
+  const tune = arExport ? getFormedExporterTune(c.pattern) : {};
+  const maxInstances = arExport ? Math.min(FORMED_INSTANCE_LIMIT, tune.arMaxInstances ?? 120000) : FORMED_INSTANCE_LIMIT;
+  const count = Math.min(maxInstances, estimatedHoleCount(c));
   if (count <= 0) return null;
 
   let geometry;
@@ -650,22 +652,27 @@ function addFormedFeatures(group, c, width, height, thickness, mat, { zLift = 0,
     const radius = c.holeSize / 2000;
     sx = radius;
     sy = radius;
-    sz = radius;
-    geometry = trieurCupGeometry(thickness / sz, arExport && count > 12000 ? { widthSegments: 10, heightSegments: 6 } : undefined);
+    sz = radius * (tune.cupDepth ?? 1);
+    const segs = arExport
+      ? { widthSegments: tune.arTrieurWidthSegments ?? 10, heightSegments: tune.arTrieurHeightSegments ?? 6 }
+      : (count > 12000 ? { widthSegments: 10, heightSegments: 6 } : undefined);
+    geometry = trieurCupGeometry(thickness / sz, segs);
   } else if (kind === 'embossed') {
-    const size = c.holeSize / 1000;
+    const size = (c.holeSize / 1000) * (tune.embossSize ?? 1);
     sx = size * 0.9;
     sy = size * 0.9;
-    sz = size * 0.38;
+    sz = size * 0.38 * (tune.embossHeight ?? 1);
     geometry = embossedDiamondGeometry(thickness / sz);
   } else if (kind === 'perfocon') {
-    const segments = arExport ? 8 : (count > 80000 ? 8 : count > 25000 ? 12 : 16);
-    geometry = perfoconConeGeometry(c, segments);
+    const segments = arExport
+      ? (tune.arPerfoconSegments ?? 8)
+      : (count > 80000 ? 8 : count > 25000 ? 12 : 16);
+    geometry = perfoconConeGeometry(c, segments, tune);
     sx = 1;
     sy = 1;
     sz = 1;
   } else {
-    geometry = bridgeHoodGeometry(c);
+    geometry = bridgeHoodGeometry(c, tune);
     sx = 1;
     sy = 1;
     sz = 1;
@@ -1621,21 +1628,6 @@ export class Three3DScene {
       bendAngle: 0,
       bendRadius: 0
     });
-
-    if (hasReferenceUsdzPattern(arConfig.pattern)) {
-      try {
-        const baseUrl = typeof import.meta !== 'undefined' && import.meta.env?.BASE_URL ? import.meta.env.BASE_URL : './';
-        const bytes = await exportScaledReferenceUsdz(arConfig, {
-          baseUrl,
-          userScale: this.scalePercent / 100
-        });
-        if (exportGen !== this.exportGen) throw new Error('stale-export');
-        return bytes;
-      } catch (err) {
-        if (exportGen !== this.exportGen || err?.message === 'stale-export') throw err;
-        console.warn('Reference USDZ export failed; using procedural geometry.', err);
-      }
-    }
 
     let group = null;
     try {

@@ -2,13 +2,13 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { referenceUsdzPlugin } from './vite-reference-usdz.js';
+import { referenceUsdzDevPlugin } from './vite-reference-usdz.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   base: './',
-  plugins: [react({ jsxRuntime: 'automatic' }), referenceUsdzPlugin()],
+  plugins: [react({ jsxRuntime: 'automatic' }), referenceUsdzDevPlugin()],
   esbuild: {
     jsx: 'automatic'
   },

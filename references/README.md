@@ -36,16 +36,19 @@ Use the **same panel size and border** for every reference. Update `spec.json` i
 
 ## Live Quick Look AR (formed patterns)
 
-These four Blender USDZ files are used **directly** in iOS Quick Look when the matching pattern is selected:
+Blender USDZ files in `usdz/` are **reference only** — they are **not** served in Quick Look.
 
-- `usdz/bridgeSlot.usdz`
-- `usdz/embossed.usdz`
-- `usdz/perfocon.usdz`
-- `usdz/trieur.usdz`
+The configurator **exports its own procedural geometry** (frame, perforated faces, merged 3D formed features). Tune formed-pattern shape using `formedCalibration` in `spec.json` after comparing exports to the Blender references.
 
-The app wraps each file with a scale transform so **width, height, thickness, pitch, row pitch, hole size, and slot length** from the configurator resize the model. The reference bake in `spec.json` (600×600 mm) is the 1:1 baseline.
+Run a dev comparison report:
 
-Flat patterns (round, square, slot, hex, etc.) still use procedural USDZ export.
+```bash
+npm run calibrate:reference
+```
+
+This writes `references/calibration.json` with procedural vs reference stats (for manual tuning).
+
+Flat patterns (round, square, slot, hex, etc.) use procedural USDZ export only.
 
 ## Blender export checklist
 
