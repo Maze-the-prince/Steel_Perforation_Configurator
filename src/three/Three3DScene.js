@@ -5,7 +5,7 @@ import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
 import { XREstimatedLight } from 'three/examples/jsm/webxr/XREstimatedLight.js';
 import { conicalProfile, cornerTreatmentMm, decorativeOffsets, estimatedHoleCount, finishAppearance, forEachHole, normalizeConfig, PATTERNS, STAGGER_ROW } from '../state/config.js';
 import { bindPbrMaps, loadPbrMaps } from './pbrMaterials.js';
-import { createUsdzMaterial, usdzExportFingerprint, arFaceHeightM, bakeArFaceUsdzMap, applyArFaceBleedUv, expandInstancedMeshesForUsdz } from '../ar/usdzExport.js';
+import { createUsdzMaterial, usdzExportFingerprint, arFaceHeightM, bakeArFaceUsdzMap, expandInstancedMeshesForUsdz } from '../ar/usdzExport.js';
 import { getFormedExporterTune } from '../ar/formedCalibration.js';
 import { detectPlatform, isCompactWeb } from '../ar/detect.js';
 
@@ -287,7 +287,7 @@ function bindArPatternMaps(faceMat, backMat, maps, c) {
   }
 }
 
-function bindPatternMaps(faceMat, backMat, maps, c) {
+function bindPatternMaps(faceMat, backMat, maps, c, { flashFix = false } = {}) {
   const through = PATTERNS[c.pattern]?.through !== false;
   const kind = PATTERNS[c.pattern]?.kind;
   const extruded = isExtrudedForm(kind);
@@ -296,15 +296,16 @@ function bindPatternMaps(faceMat, backMat, maps, c) {
   const faceAlpha = cutSkin ? maps.alphaMap : null;
   const backAlpha = cutSkin ? (maps.backAlphaMap || maps.alphaMap) : null;
   const iosAlpha = typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+  const useOffset = extruded && flashFix;
   if (faceMat) {
     faceMat.alphaMap = faceAlpha;
     faceMat.alphaTest = cutSkin ? HOLE_ALPHA_TEST : 0;
     faceMat.transparent = Boolean(cutSkin && iosAlpha);
     faceMat.bumpMap = maps.bumpMap;
     faceMat.bumpScale = formed ? 0.016 : 0;
-    faceMat.polygonOffset = extruded;
-    faceMat.polygonOffsetFactor = extruded ? 1 : 0;
-    faceMat.polygonOffsetUnits = extruded ? 1 : 0;
+    faceMat.polygonOffset = useOffset;
+    faceMat.polygonOffsetFactor = useOffset ? 1 : 0;
+    faceMat.polygonOffsetUnits = useOffset ? 1 : 0;
     faceMat.needsUpdate = true;
   }
   if (backMat) {
@@ -313,9 +314,9 @@ function bindPatternMaps(faceMat, backMat, maps, c) {
     backMat.transparent = Boolean(cutSkin && iosAlpha);
     backMat.bumpMap = null;
     backMat.bumpScale = 0;
-    backMat.polygonOffset = extruded;
-    backMat.polygonOffsetFactor = extruded ? 1 : 0;
-    backMat.polygonOffsetUnits = extruded ? 1 : 0;
+    backMat.polygonOffset = useOffset;
+    backMat.polygonOffsetFactor = useOffset ? 1 : 0;
+    backMat.polygonOffsetUnits = useOffset ? 1 : 0;
     backMat.needsUpdate = true;
   }
 }
@@ -645,9 +646,10 @@ function perfoconConeGeometry(c, segments = 16, tune = {}) {
 
 const FORMED_Z_LIFT = 0.00012;
 
-function addFormedFeatures(group, c, width, height, thickness, mat, { zLift = FORMED_Z_LIFT, arExport = false } = {}) {
+function addFormedFeatures(group, c, width, height, thickness, mat, { zLift, arExport = false } = {}) {
   const kind = PATTERNS[c.pattern]?.kind;
   if (!isExtrudedForm(kind)) return null;
+  const lift = zLift ?? (arExport ? 0 : FORMED_Z_LIFT);
   const tune = arExport ? getFormedExporterTune(c.pattern) : {};
   const maxInstances = arExport ? Math.min(FORMED_INSTANCE_LIMIT, tune.arMaxInstances ?? 120000) : FORMED_INSTANCE_LIMIT;
   const count = Math.min(maxInstances, estimatedHoleCount(c));
@@ -693,13 +695,13 @@ function addFormedFeatures(group, c, width, height, thickness, mat, { zLift = FO
   const mesh = new THREE.InstancedMesh(geometry, meshMat, count);
   mesh.name = 'FORMED_FEATURES';
   mesh.frustumCulled = false;
-  mesh.renderOrder = 4;
+  mesh.renderOrder = arExport ? 3 : 4;
   mesh.receiveShadow = count <= 12000;
   mesh.castShadow = count <= 8000;
   let i = 0;
   forEachHole(c, (x, y) => {
     if (i >= count) return false;
-    _formDummy.position.set(x / 1000 - width / 2, y / 1000, thickness / 2 + zLift);
+    _formDummy.position.set(x / 1000 - width / 2, y / 1000, thickness / 2 + lift);
     _formDummy.rotation.set(0, 0, 0);
     _formDummy.scale.set(sx, sy, sz);
     _formDummy.updateMatrix();
@@ -849,8 +851,12 @@ export async function prepareArSheetGroupForExport(group, maxTextureSize = 4096)
     if (!obj.isMesh || !obj.material) return;
     const source = obj.material;
     if ((obj.name === 'AR_FACE' || obj.name === 'AR_BACK') && config && innerW > 0 && innerH > 0) {
-      tasks.push(bakeArFaceUsdzMap(source, config, colorHex, { maxSize: maxTextureSize, flipY: false }).then((map) => {
-        if (map) applyArFaceBleedUv(map, innerH, arFaceH);
+      tasks.push(bakeArFaceUsdzMap(source, config, colorHex, {
+        maxSize: maxTextureSize,
+        flipY: false,
+        faceRole: obj.name === 'AR_BACK' ? 'back' : 'front',
+        arFaceHeightMm: arFaceH * 1000
+      }).then((map) => {
         const perforated = Boolean(source.alphaMap || source.bumpMap);
         obj.material = new THREE.MeshStandardMaterial({
           color: colorHex,
@@ -1179,7 +1185,7 @@ export class Three3DScene {
   replaceMask(c) {
     const maps = createSheetMaps(c, this.maxAnisotropy);
     const prev = [this.faceMat?.alphaMap, this.backMat?.alphaMap, this.faceMat?.bumpMap, this.backMat?.bumpMap];
-    bindPatternMaps(this.faceMat, this.backMat, maps, c);
+    bindPatternMaps(this.faceMat, this.backMat, maps, c, { flashFix: true });
     disposeUnusedMaps(prev, {
       alphaMap: this.faceMat?.alphaMap,
       bumpMap: this.faceMat?.bumpMap,

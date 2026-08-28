@@ -153,21 +153,52 @@ export async function bakeInnerFaceUsdzMap(material, config, innerWidthMm, inner
   return bakeReliefFaceUsdzMap(material, config, innerWidthMm, innerHeightMm, colorHex, { maxSize, flipY, relief: 0 });
 }
 
+/** Extend a baked inner-zone texture to cover the taller AR face plane (top bleed under frame). */
+function extendTextureForArFaceBleed(texture, innerHeightMm, arFaceHeightMm, colorHex) {
+  if (!texture?.image || arFaceHeightMm <= innerHeightMm + 0.5) return texture;
+  const innerRatio = innerHeightMm / arFaceHeightMm;
+  const img = texture.image;
+  const canvas = document.createElement('canvas');
+  canvas.width = img.width;
+  canvas.height = Math.max(img.height, Math.round(img.height / innerRatio));
+  const ctx = canvas.getContext('2d');
+  const color = resolveColor(colorHex);
+  ctx.fillStyle = `rgb(${Math.round(color.r * 255)},${Math.round(color.g * 255)},${Math.round(color.b * 255)})`;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const patternH = Math.round(canvas.height * innerRatio);
+  ctx.drawImage(img, 0, 0, img.width, img.height, 0, canvas.height - patternH, canvas.width, patternH);
+  const next = texture.clone();
+  next.image = canvas;
+  next.repeat.set(1, 1);
+  next.offset.set(0, 0);
+  next.wrapS = THREE.ClampToEdgeWrapping;
+  next.wrapT = THREE.ClampToEdgeWrapping;
+  next.needsUpdate = true;
+  return next;
+}
+
 /** Bake an AR face/back map — perforated, relief, or solid — sized to the inner cutout. */
 const arFaceBakeCache = new Map();
 const AR_FACE_CACHE_MAX = 16;
 
-export async function bakeArFaceUsdzMap(sourceMat, config, colorHex, { maxSize = 4096, flipY = false } = {}) {
+export async function bakeArFaceUsdzMap(sourceMat, config, colorHex, {
+  maxSize = 4096,
+  flipY = false,
+  faceRole = 'front',
+  arFaceHeightMm = 0
+} = {}) {
   const hex = colorHex?.startsWith('#') ? colorHex : `#${colorHex || 'b8bcc2'}`;
-  const key = `${usdzExportFingerprint(config)}|${maxSize}|${flipY ? 1 : 0}|${hex}`;
+  const { innerWidthMm, innerHeightMm } = sheetInnerSizeMm(config.width, config.height, config.border);
+  const key = `${usdzExportFingerprint(config)}|${maxSize}|${flipY ? 1 : 0}|${hex}|${faceRole}|${Math.round(arFaceHeightMm)}`;
   const cached = arFaceBakeCache.get(key);
   if (cached) return cached.clone();
 
-  const { innerWidthMm, innerHeightMm } = sheetInnerSizeMm(config.width, config.height, config.border);
   const kind = PATTERNS[config.pattern]?.kind;
-  const formedKind = kind === 'trieur' || kind === 'embossed' || kind === 'bridge' || kind === 'perfocon';
+  const formedKind = kind === 'embossed' || kind === 'bridge' || kind === 'perfocon';
   let texture;
-  if (sourceMat?.alphaMap || sourceMat?.bumpMap) {
+  if (kind === 'trieur' && faceRole === 'front') {
+    texture = bakeSolidFaceUsdzMap(hex, innerWidthMm, innerHeightMm, { maxSize, flipY });
+  } else if (sourceMat?.alphaMap || sourceMat?.bumpMap) {
     texture = await bakeReliefFaceUsdzMap(sourceMat, config, innerWidthMm, innerHeightMm, hex, {
       maxSize,
       flipY,
@@ -176,6 +207,8 @@ export async function bakeArFaceUsdzMap(sourceMat, config, colorHex, { maxSize =
   } else {
     texture = bakeSolidFaceUsdzMap(hex, innerWidthMm, innerHeightMm, { maxSize, flipY });
   }
+
+  texture = extendTextureForArFaceBleed(texture, innerHeightMm, arFaceHeightMm || innerHeightMm, hex);
 
   if (arFaceBakeCache.size >= AR_FACE_CACHE_MAX) {
     const oldest = arFaceBakeCache.keys().next().value;
