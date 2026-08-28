@@ -154,19 +154,36 @@ export async function bakeInnerFaceUsdzMap(material, config, innerWidthMm, inner
 }
 
 /** Bake an AR face/back map — perforated, relief, or solid — sized to the inner cutout. */
+const arFaceBakeCache = new Map();
+const AR_FACE_CACHE_MAX = 16;
+
 export async function bakeArFaceUsdzMap(sourceMat, config, colorHex, { maxSize = 4096, flipY = false } = {}) {
-  const { innerWidthMm, innerHeightMm } = sheetInnerSizeMm(config.width, config.height, config.border);
   const hex = colorHex?.startsWith('#') ? colorHex : `#${colorHex || 'b8bcc2'}`;
+  const key = `${usdzExportFingerprint(config)}|${maxSize}|${flipY ? 1 : 0}|${hex}`;
+  const cached = arFaceBakeCache.get(key);
+  if (cached) return cached.clone();
+
+  const { innerWidthMm, innerHeightMm } = sheetInnerSizeMm(config.width, config.height, config.border);
   const kind = PATTERNS[config.pattern]?.kind;
   const formedKind = kind === 'trieur' || kind === 'embossed' || kind === 'bridge' || kind === 'perfocon';
+  let texture;
   if (sourceMat?.alphaMap || sourceMat?.bumpMap) {
-    return bakeReliefFaceUsdzMap(sourceMat, config, innerWidthMm, innerHeightMm, hex, {
+    texture = await bakeReliefFaceUsdzMap(sourceMat, config, innerWidthMm, innerHeightMm, hex, {
       maxSize,
       flipY,
       relief: formedKind ? 1.15 : 1
     });
+  } else {
+    texture = bakeSolidFaceUsdzMap(hex, innerWidthMm, innerHeightMm, { maxSize, flipY });
   }
-  return bakeSolidFaceUsdzMap(hex, innerWidthMm, innerHeightMm, { maxSize, flipY });
+
+  if (arFaceBakeCache.size >= AR_FACE_CACHE_MAX) {
+    const oldest = arFaceBakeCache.keys().next().value;
+    arFaceBakeCache.get(oldest)?.dispose?.();
+    arFaceBakeCache.delete(oldest);
+  }
+  arFaceBakeCache.set(key, texture);
+  return texture.clone();
 }
 
 async function ensureTextureImage(texture) {

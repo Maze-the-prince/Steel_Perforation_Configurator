@@ -25,7 +25,8 @@
   "formedCalibration": {
     "description": "Tuning for procedural formed-pattern geometry. Adjust after comparing Quick Look export to Blender reference USDZ in references/usdz/ (dev-only, not served in AR).",
     "default": {
-      "arMaxInstances": 120000,
+      "arMaxInstances": 60000,
+      "viewerMaxInstances": 80000,
       "arPerfoconSegments": 8,
       "arTrieurWidthSegments": 10,
       "arTrieurHeightSegments": 6

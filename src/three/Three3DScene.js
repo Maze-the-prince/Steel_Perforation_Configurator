@@ -5,7 +5,7 @@ import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
 import { XREstimatedLight } from 'three/examples/jsm/webxr/XREstimatedLight.js';
 import { conicalProfile, cornerTreatmentMm, decorativeOffsets, estimatedHoleCount, finishAppearance, forEachHole, normalizeConfig, PATTERNS, STAGGER_ROW } from '../state/config.js';
 import { bindPbrMaps, loadPbrMaps } from './pbrMaterials.js';
-import { createUsdzMaterial, usdzExportFingerprint, arFaceHeightM, bakeArFaceUsdzMap, applyArFaceBleedUv, expandInstancedMeshesForUsdz } from '../ar/usdzExport.js';
+import { createUsdzMaterial, usdzExportFingerprint, arFaceHeightM, bakeArFaceUsdzMap, applyArFaceBleedUv, expandInstancedMeshesForUsdz, usdzFaceRepeat, innerFaceTextureSize, sheetInnerSizeMm } from '../ar/usdzExport.js';
 import { getFormedExporterTune } from '../ar/formedCalibration.js';
 import { detectPlatform, isCompactWeb } from '../ar/detect.js';
 
@@ -233,25 +233,70 @@ function buildPatternMaps(config, maxAnisotropy = 4, { holeScale = 1, skipBump =
   };
 }
 
-function createSheetMaps(config, maxAnisotropy) {
+function createSheetMaps(config, maxAnisotropy, { compact = false } = {}) {
   const c = normalizeConfig(config);
+  const kind = PATTERNS[c.pattern]?.kind;
   if (PATTERNS[c.pattern]?.conical) {
     const cone = conicalProfile(c);
     const maps = buildPatternMaps(c, maxAnisotropy, { holeScale: 1, skipBump: true });
-    maps.backAlphaMap = buildPatternMaps(c, maxAnisotropy, { holeScale: cone.exit / cone.entrance, skipBump: true }).alphaMap;
+    if (compact) {
+      maps.alphaMap = panelBakedAlphaMap(c, maxAnisotropy, 1);
+    }
+    maps.backAlphaMap = compact
+      ? panelBakedAlphaMap(c, maxAnisotropy, cone.exit / cone.entrance)
+      : buildPatternMaps(c, maxAnisotropy, { holeScale: cone.exit / cone.entrance, skipBump: true }).alphaMap;
     return maps;
   }
-  if (PATTERNS[c.pattern]?.kind === 'embossed') {
+  if (kind === 'embossed') {
     const maps = buildPatternMaps(c, maxAnisotropy, { holeScale: 0.48, skipBump: true });
     maps.backAlphaMap = maps.alphaMap;
     return maps;
   }
-  if (PATTERNS[c.pattern]?.kind === 'trieur') {
+  if (kind === 'trieur') {
     const maps = buildPatternMaps(c, maxAnisotropy, { holeScale: 0.72, skipBump: true });
     maps.backAlphaMap = buildPatternMaps(c, maxAnisotropy, { holeScale: 0.9, skipBump: true }).alphaMap;
     return maps;
   }
+  if (kind === 'bridge') {
+    const maps = buildPatternMaps(c, maxAnisotropy, { holeScale: 1, skipBump: true });
+    if (compact) maps.alphaMap = panelBakedAlphaMap(c, maxAnisotropy, 1);
+    maps.backAlphaMap = maps.alphaMap;
+    return maps;
+  }
   return buildPatternMaps(c, maxAnisotropy);
+}
+
+/** One-shot panel alpha map — avoids extreme UV repeat moiré on mobile for formed patterns. */
+function panelBakedAlphaMap(config, maxAnisotropy, holeScale = 1, maxSize = 2048) {
+  const c = normalizeConfig(config);
+  const { innerWidthMm, innerHeightMm } = sheetInnerSizeMm(c.width, c.height, c.border);
+  const { repeatX, repeatY } = usdzFaceRepeat(c, innerWidthMm, innerHeightMm);
+  const { outW, outH } = innerFaceTextureSize(innerWidthMm, innerHeightMm, repeatX, repeatY, maxSize);
+  const tileCanvas = paintPatternTile(c, { holeScale, bump: false });
+  const canvas = document.createElement('canvas');
+  canvas.width = outW;
+  canvas.height = outH;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, outW, outH);
+  const cellW = outW / repeatX;
+  const cellH = outH / repeatY;
+  for (let row = 0; row < Math.ceil(repeatY); row += 1) {
+    for (let col = 0; col < Math.ceil(repeatX); col += 1) {
+      ctx.drawImage(tileCanvas, col * cellW, row * cellH, cellW, cellH);
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.repeat.set(1, 1);
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.anisotropy = Math.max(1, maxAnisotropy);
+  texture.needsUpdate = true;
+  return texture;
 }
 
 /** Pattern maps for iOS Quick Look — relief bumps instead of 3D formed geometry. */
@@ -290,17 +335,39 @@ function bindArPatternMaps(faceMat, backMat, maps, c) {
 function bindPatternMaps(faceMat, backMat, maps, c) {
   const through = PATTERNS[c.pattern]?.through !== false;
   const kind = PATTERNS[c.pattern]?.kind;
-  const formed = Boolean(PATTERNS[c.pattern]?.formed) && !isExtrudedForm(kind);
+  const extruded = isExtrudedForm(kind);
+  const formed = Boolean(PATTERNS[c.pattern]?.formed) && !extruded;
   const cutSkin = through || kind === 'trieur';
   const faceAlpha = cutSkin ? maps.alphaMap : null;
   const backAlpha = cutSkin ? (maps.backAlphaMap || maps.alphaMap) : null;
   const iosAlpha = typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
   if (faceMat) {
-    faceMat.alphaMap = faceAlpha;
-    faceMat.alphaTest = cutSkin ? HOLE_ALPHA_TEST : 0;
-    faceMat.transparent = Boolean(cutSkin && iosAlpha);
-    faceMat.bumpMap = maps.bumpMap;
-    faceMat.bumpScale = formed ? 0.016 : 0;
+    if (extruded && (kind === 'trieur' || kind === 'embossed')) {
+      faceMat.alphaMap = null;
+      faceMat.alphaTest = 0;
+      faceMat.transparent = false;
+      faceMat.bumpMap = null;
+      faceMat.bumpScale = 0;
+      faceMat.polygonOffset = true;
+      faceMat.polygonOffsetFactor = 1;
+      faceMat.polygonOffsetUnits = 1;
+    } else if (extruded) {
+      faceMat.alphaMap = faceAlpha;
+      faceMat.alphaTest = cutSkin ? HOLE_ALPHA_TEST : 0;
+      faceMat.transparent = Boolean(cutSkin && iosAlpha);
+      faceMat.bumpMap = null;
+      faceMat.bumpScale = 0;
+      faceMat.polygonOffset = true;
+      faceMat.polygonOffsetFactor = 1;
+      faceMat.polygonOffsetUnits = 1;
+    } else {
+      faceMat.alphaMap = faceAlpha;
+      faceMat.alphaTest = cutSkin ? HOLE_ALPHA_TEST : 0;
+      faceMat.transparent = Boolean(cutSkin && iosAlpha);
+      faceMat.bumpMap = maps.bumpMap;
+      faceMat.bumpScale = formed ? 0.016 : 0;
+      faceMat.polygonOffset = false;
+    }
     faceMat.needsUpdate = true;
   }
   if (backMat) {
@@ -456,11 +523,11 @@ function trieurCupGeometry(wallDepth = 0.45, { widthSegments = 16, heightSegment
   const dome = new THREE.SphereGeometry(1, widthSegments, heightSegments, 0, Math.PI * 2, 0, Math.PI / 2);
   dome.rotateX(Math.PI / 2);
   seatGeometryOnFace(dome);
-  const depth = Math.max(0.12, wallDepth);
-  const neck = new THREE.CylinderGeometry(0.9, 0.9, depth, widthSegments, 1, true);
-  neck.rotateX(Math.PI / 2);
-  neck.translate(0, 0, -depth / 2);
-  return mergeIndexedGeometries([dome, neck]);
+  const lip = Math.max(0.04, wallDepth * 0.28);
+  const collar = new THREE.CylinderGeometry(0.9, 0.92, lip, widthSegments, 1, true);
+  collar.rotateX(Math.PI / 2);
+  collar.translate(0, 0, lip / 2);
+  return mergeIndexedGeometries([dome, collar]);
 }
 
 function pointInDiamond(x, y, half) {
@@ -525,21 +592,6 @@ function mergeIndexedGeometries(geos) {
   return geo;
 }
 
-function diamondPunchWalls(half, zFront, zBack) {
-  const ring = (z) => ([0, -half, z, half, 0, z, 0, half, z, -half, 0, z]);
-  const positions = [...ring(zFront), ...ring(zBack)];
-  const indices = [];
-  const quad = (a, b, c, d) => { indices.push(a, b, c, a, c, d); };
-  for (let i = 0; i < 4; i++) {
-    const n = (i + 1) % 4;
-    quad(i, n, 4 + n, 4 + i);
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geo.setIndex(indices);
-  return geo;
-}
-
 function diamondSealRing(outer, inner, z) {
   const ring = (half) => ([0, -half, z, half, 0, z, 0, half, z, -half, 0, z]);
   const positions = [...ring(outer), ...ring(inner)];
@@ -574,8 +626,7 @@ function embossedDiamondGeometry(wallDepth = 0.45) {
   seatGeometryOnFace(boss);
   stripInnerBottomCap(boss, punch + 0.02);
   const seal = diamondSealRing(0.62, punch, 0.00035);
-  const walls = diamondPunchWalls(punch, 0.00035, -Math.max(0.12, wallDepth));
-  return mergeIndexedGeometries([boss, seal, walls]);
+  return mergeIndexedGeometries([boss, seal]);
 }
 
 function bridgeHoodGeometry(c, tune = {}) {
@@ -636,11 +687,14 @@ function perfoconConeGeometry(c, segments = 16, tune = {}) {
   return geo;
 }
 
-function addFormedFeatures(group, c, width, height, thickness, mat, { zLift = 0, arExport = false } = {}) {
+function addFormedFeatures(group, c, width, height, thickness, mat, { zLift = 0.00015, arExport = false, compact = false } = {}) {
   const kind = PATTERNS[c.pattern]?.kind;
   if (!isExtrudedForm(kind)) return null;
   const tune = arExport ? getFormedExporterTune(c.pattern) : {};
-  const maxInstances = arExport ? Math.min(FORMED_INSTANCE_LIMIT, tune.arMaxInstances ?? 120000) : FORMED_INSTANCE_LIMIT;
+  const viewerCap = tune.viewerMaxInstances ?? (compact ? 80000 : 250000);
+  const maxInstances = arExport
+    ? Math.min(FORMED_INSTANCE_LIMIT, tune.arMaxInstances ?? 60000)
+    : Math.min(FORMED_INSTANCE_LIMIT, viewerCap);
   const count = Math.min(maxInstances, estimatedHoleCount(c));
   if (count <= 0) return null;
 
@@ -684,8 +738,9 @@ function addFormedFeatures(group, c, width, height, thickness, mat, { zLift = 0,
   const mesh = new THREE.InstancedMesh(geometry, meshMat, count);
   mesh.name = 'FORMED_FEATURES';
   mesh.frustumCulled = false;
-  mesh.receiveShadow = count <= 12000;
-  mesh.castShadow = count <= 8000;
+  mesh.renderOrder = 4;
+  mesh.receiveShadow = !compact && !arExport && count <= 12000;
+  mesh.castShadow = !compact && !arExport && count <= 8000;
   let i = 0;
   forEachHole(c, (x, y) => {
     if (i >= count) return false;
@@ -775,7 +830,7 @@ export function buildArSheetGroupForConfig(c) {
   const innerH = Math.max(0.0008, height - 2 * borderM);
   const appearance = finishAppearance(c);
   const extruded = isExtrudedForm(PATTERNS[c.pattern]?.kind);
-  const maps = createSheetMaps(c, 4);
+  const maps = createSheetMaps(c, 4, { compact: true });
   const group = new THREE.Group();
   group.name = 'AR_SHEET';
 
@@ -946,6 +1001,7 @@ export class Three3DScene {
     this.arHitStable = 0;
     this.arLastHitY = null;
     this.arPointers = new Map();
+    this._arShadowState = [];
     this.arPinchStart = 0;
     this.arPinchScale0 = 100;
     this.arTwistStart = 0;
@@ -971,7 +1027,7 @@ export class Three3DScene {
     this.formId = '';
     this.maxAnisotropy = 4;
     this.dimHud = null;
-    this.compact = isCompactWeb() || detectPlatform().ios;
+    this.compact = isCompactWeb() || detectPlatform().ios || detectPlatform().android;
     this.iosRenderer = detectPlatform().ios;
     this.pixelRatioCap = this.compact ? Math.min(devicePixelRatio || 1, 1.1) : Math.min(devicePixelRatio || 1, 1.5);
 
@@ -1166,7 +1222,7 @@ export class Three3DScene {
   }
 
   replaceMask(c) {
-    const maps = createSheetMaps(c, this.maxAnisotropy);
+    const maps = createSheetMaps(c, this.maxAnisotropy, { compact: this.compact });
     const prev = [this.faceMat?.alphaMap, this.backMat?.alphaMap, this.faceMat?.bumpMap, this.backMat?.bumpMap];
     bindPatternMaps(this.faceMat, this.backMat, maps, c);
     disposeUnusedMaps(prev, {
@@ -1199,7 +1255,7 @@ export class Three3DScene {
     const width = c.width / 1000;
     const height = c.height / 1000;
     const thickness = Math.max(0.0005, c.thickness / 1000);
-    this.formedGroup = addFormedFeatures(this.model, c, width, height, thickness, this.solidMat);
+    this.formedGroup = addFormedFeatures(this.model, c, width, height, thickness, this.solidMat, { compact: this.compact });
     this.formedMat = this.formedGroup?.children[0]?.material || null;
   }
 
@@ -1212,7 +1268,7 @@ export class Three3DScene {
     const height = c.height / 1000;
     const thickness = Math.max(0.0005, c.thickness / 1000);
     const appearance = finishAppearance(c);
-    const maps = createSheetMaps(c, this.maxAnisotropy);
+    const maps = createSheetMaps(c, this.maxAnisotropy, { compact: this.compact });
     const group = new THREE.Group();
     group.name = 'PERFORATED_SHEET';
 
@@ -1252,7 +1308,7 @@ export class Three3DScene {
       clearcoat: appearance.clearcoat
     });
     addFormDetails(group, c, width, height, thickness, edgeMat);
-    this.formedGroup = addFormedFeatures(group, c, width, height, thickness, solidMat);
+    this.formedGroup = addFormedFeatures(group, c, width, height, thickness, solidMat, { compact: this.compact });
     this.formedMat = this.formedGroup?.children[0]?.material || null;
 
     this.model = group;
@@ -1674,6 +1730,13 @@ export class Three3DScene {
     this.arPlaced = false; this.arMoving = false; this.arHitStable = 0; this.arLastHitY = null; this.arPointers.clear();
     this.root.rotation.set(0, 0, 0); this.root.visible = false; this.ground.visible = false; this.groundShadow.visible = false; this.arFloor.visible = false; this.reticle.visible = false;
     this.renderer.shadowMap.autoUpdate = true;
+    this._arShadowState = [];
+    this.model?.traverse((obj) => {
+      if (!obj.isMesh) return;
+      this._arShadowState.push([obj, obj.castShadow, obj.receiveShadow]);
+      obj.castShadow = false;
+      obj.receiveShadow = false;
+    });
     this.applyCurrentScale();
     document.body.classList.add('is-ar');
     this.setArMode('scanning');
@@ -1713,6 +1776,13 @@ export class Three3DScene {
       this.overlay.removeEventListener('pointercancel', this.onARPointerUp);
     }
     this.xrSession = null; this.hitTestSource = null; this.arPlaced = false; this.arMoving = false; this.arPointers.clear();
+    this._arShadowState?.forEach(([obj, cast, receive]) => {
+      if (obj?.isMesh) {
+        obj.castShadow = cast;
+        obj.receiveShadow = receive;
+      }
+    });
+    this._arShadowState = [];
     this.reticle.visible = false; this.arFloor.visible = false; this.root.visible = true; this.root.position.set(0, 0, 0); this.root.rotation.set(0, 0, 0);
     this.arFloorY = null; this.ground.visible = true; this.groundShadow.visible = true; this.renderer.shadowMap.autoUpdate = !this.bakedShadows;
     this.keyLight.intensity = 2.62; this.hemi.intensity = 1.62; this.scene.environment = this.studioEnv;

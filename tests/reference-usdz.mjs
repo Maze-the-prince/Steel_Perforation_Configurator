@@ -6,7 +6,8 @@ assert.ok(!hasFormedReference('round60'));
 
 const bridge = getFormedExporterTune('bridgeSlot');
 assert.equal(bridge.hoodRise, 1);
-assert.equal(bridge.arMaxInstances, 120000);
+assert.equal(bridge.arMaxInstances, 60000);
+assert.equal(bridge.viewerMaxInstances, 80000);
 
 const perf = getFormedExporterTune('perfocon');
 assert.equal(perf.arPerfoconSegments, 8);
