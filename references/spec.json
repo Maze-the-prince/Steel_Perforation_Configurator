@@ -1,0 +1,51 @@
+{
+  "description": "Shared reference panel for all pattern USDZ/GLB files in references/usdz and references/glb",
+  "units": "mm",
+  "panel": {
+    "width": 600,
+    "height": 600,
+    "thickness": 2,
+    "border": 25,
+    "material": "carbon",
+    "finish": "mill",
+    "color": "ral7016"
+  },
+  "patterns": {
+    "round60": { "holeSize": 8, "pitch": 12 },
+    "square": { "holeSize": 8, "pitch": 12 },
+    "slot": { "holeSize": 5, "slotLength": 20, "pitch": 12, "rowPitch": 24 },
+    "hex": { "holeSize": 8, "pitch": 12 },
+    "roundStraight": { "holeSize": 8, "pitch": 12 },
+    "bridgeSlot": { "holeSize": 4, "slotLength": 22, "pitch": 26, "rowPitch": 12 },
+    "trieur": { "holeSize": 8, "pitch": 10 },
+    "perfocon": { "holeSize": 3, "pitch": 8, "coneAngle": 60 },
+    "decorative": { "holeSize": 3, "pitch": 32 },
+    "embossed": { "holeSize": 12, "pitch": 18 }
+  },
+  "expectedFiles": {
+    "usdz": [
+      "round60.usdz",
+      "square.usdz",
+      "slot.usdz",
+      "hex.usdz",
+      "roundStraight.usdz",
+      "bridgeSlot.usdz",
+      "trieur.usdz",
+      "perfocon.usdz",
+      "decorative.usdz",
+      "embossed.usdz"
+    ],
+    "glb": [
+      "round60.glb",
+      "square.glb",
+      "slot.glb",
+      "hex.glb",
+      "roundStraight.glb",
+      "bridgeSlot.glb",
+      "trieur.glb",
+      "perfocon.glb",
+      "decorative.glb",
+      "embossed.glb"
+    ]
+  }
+}

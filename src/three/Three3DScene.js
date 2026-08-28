@@ -1,10 +1,12 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
 import { XREstimatedLight } from 'three/examples/jsm/webxr/XREstimatedLight.js';
 import { conicalProfile, cornerTreatmentMm, decorativeOffsets, estimatedHoleCount, finishAppearance, forEachHole, normalizeConfig, PATTERNS, STAGGER_ROW } from '../state/config.js';
 import { bindPbrMaps, loadPbrMaps } from './pbrMaterials.js';
 import { createUsdzMaterial, usdzExportFingerprint, arFaceHeightM, bakeArFaceUsdzMap, applyArFaceBleedUv, expandInstancedMeshesForUsdz } from '../ar/usdzExport.js';
+import { exportScaledReferenceUsdz, hasReferenceUsdzPattern } from '../ar/referenceUsdzExport.js';
 import { detectPlatform, isCompactWeb } from '../ar/detect.js';
 
 const _hitPos = new THREE.Vector3();
@@ -757,6 +759,161 @@ function addFormDetails(group, c, width, height, thickness, edgeMat) {
   }
 }
 
+export function buildArSheetGroupForConfig(c) {
+  const width = c.width / 1000;
+  const height = c.height / 1000;
+  const thickness = Math.max(0.0005, c.thickness / 1000);
+  const borderM = c.border / 1000;
+  const innerW = Math.max(0.0008, width - 2 * borderM);
+  const innerH = Math.max(0.0008, height - 2 * borderM);
+  const appearance = finishAppearance(c);
+  const extruded = isExtrudedForm(PATTERNS[c.pattern]?.kind);
+  const maps = createSheetMaps(c, 4);
+  const group = new THREE.Group();
+  group.name = 'AR_SHEET';
+
+  const faceMat = new THREE.MeshStandardMaterial({
+    color: appearance.hex,
+    metalness: appearance.metalness,
+    roughness: appearance.roughness,
+    alphaTest: PATTERNS[c.pattern]?.through === false ? 0 : HOLE_ALPHA_TEST,
+    transparent: false,
+    side: THREE.FrontSide
+  });
+  bindPatternMaps(faceMat, null, maps, c);
+
+  const backMat = faceMat.clone();
+  backMat.side = THREE.FrontSide;
+  bindPatternMaps(null, backMat, maps, c);
+
+  const solidMat = new THREE.MeshStandardMaterial({
+    color: appearance.hex,
+    metalness: Math.min(1, appearance.metalness + 0.06),
+    roughness: Math.max(0.08, appearance.roughness - 0.06),
+    side: THREE.FrontSide
+  });
+
+  addSheetSkins(group, faceMat, backMat, solidMat, width, height, thickness, { ...c, _arExport: true });
+
+  if (extruded) {
+    addFormedFeatures(group, c, width, height, thickness, solidMat, { arExport: true });
+  }
+
+  group.traverse((obj) => {
+    if (!obj.isMesh) return;
+    if (obj.geometry?.type === 'ExtrudeGeometry') {
+      obj.name = 'AR_FRAME';
+      obj.renderOrder = 2;
+    } else if (obj.geometry?.type === 'PlaneGeometry' && !obj.name) {
+      obj.name = 'AR_FACE';
+      obj.renderOrder = 1;
+    }
+  });
+
+  group.userData.appearance = appearance;
+  group.userData.arConfig = c;
+  group.userData.exportFingerprint = usdzExportFingerprint(c);
+  group.userData.innerW = innerW;
+  group.userData.innerH = innerH;
+  group.userData.arFaceH = arFaceHeightM(innerH, c.border);
+  return { group, appearance, innerW, innerH };
+}
+
+export async function prepareArSheetGroupForExport(group, maxTextureSize = 4096) {
+  const appearance = group.userData.appearance || {};
+  const colorHex = appearance.hex || '#b8bcc2';
+  const config = group.userData.arConfig || null;
+  const innerW = group.userData.innerW || 0;
+  const innerH = group.userData.innerH || 0;
+  const arFaceH = group.userData.arFaceH || innerH;
+  expandInstancedMeshesForUsdz(group);
+  const tasks = [];
+  group.traverse((obj) => {
+    if (!obj.isMesh || !obj.material) return;
+    const source = obj.material;
+    if ((obj.name === 'AR_FACE' || obj.name === 'AR_BACK') && config && innerW > 0 && innerH > 0) {
+      tasks.push(bakeArFaceUsdzMap(source, config, colorHex, { maxSize: maxTextureSize, flipY: false }).then((map) => {
+        if (map) applyArFaceBleedUv(map, innerH, arFaceH);
+        const perforated = Boolean(source.alphaMap || source.bumpMap);
+        obj.material = new THREE.MeshStandardMaterial({
+          color: colorHex,
+          map: map || null,
+          metalness: source.metalness ?? appearance.metalness ?? 0.82,
+          roughness: source.roughness ?? appearance.roughness ?? 0.34,
+          alphaTest: perforated ? 0.35 : 0,
+          transparent: false,
+          depthWrite: true,
+          side: THREE.FrontSide
+        });
+      }));
+      return;
+    }
+    tasks.push(createUsdzMaterial(source, {
+      colorHex,
+      metalness: source.metalness ?? appearance.metalness ?? 0.82,
+      roughness: source.roughness ?? appearance.roughness ?? 0.34,
+      maxTextureSize,
+      perforated: false
+    }).then((mat) => {
+      obj.material = mat;
+    }));
+  });
+  await Promise.all(tasks);
+}
+
+async function prepareReferenceGlbGroup(group) {
+  const appearance = group.userData.appearance || {};
+  const colorHex = appearance.hex || '#b8bcc2';
+  expandInstancedMeshesForUsdz(group);
+  group.traverse((obj) => {
+    if (!obj.isMesh?.material) return;
+    const source = obj.material;
+    const perforated = Boolean(source.alphaMap || source.map);
+    obj.material = new THREE.MeshStandardMaterial({
+      color: colorHex,
+      metalness: source.metalness ?? appearance.metalness ?? 0.82,
+      roughness: source.roughness ?? appearance.roughness ?? 0.34,
+      alphaTest: perforated ? 0.35 : 0,
+      transparent: false,
+      side: THREE.FrontSide
+    });
+  });
+}
+
+export async function exportReferenceSheetGLB(config, { maxTextureSize = 2048 } = {}) {
+  const arConfig = normalizeConfig({
+    ...config,
+    panelForm: 'flat',
+    flangeDepth: 0,
+    bendAngle: 0,
+    bendRadius: 0
+  });
+  let group = null;
+  let wrapper = null;
+  try {
+    ({ group } = buildArSheetGroupForConfig(arConfig));
+    await prepareReferenceGlbGroup(group);
+    wrapper = new THREE.Group();
+    wrapper.name = 'REFERENCE_SHEET';
+    wrapper.add(group);
+    group = null;
+    wrapper.updateMatrixWorld(true);
+    const exporter = new GLTFExporter();
+    const bytes = await new Promise((resolve, reject) => {
+      exporter.parse(
+        wrapper,
+        (result) => resolve(result),
+        (err) => reject(err),
+        { binary: true, onlyVisible: true, truncateDrawRange: true }
+      );
+    });
+    return bytes;
+  } finally {
+    if (group) disposeObject(group);
+    if (wrapper) disposeObject(wrapper);
+  }
+}
+
 export class Three3DScene {
   constructor(canvas, { bakedShadows = true, onArState, onArScale, onBusy } = {}) {
     this.canvas = canvas;
@@ -1437,105 +1594,11 @@ export class Three3DScene {
   }
 
   buildArSheetGroup(c) {
-    const width = c.width / 1000;
-    const height = c.height / 1000;
-    const thickness = Math.max(0.0005, c.thickness / 1000);
-    const borderM = c.border / 1000;
-    const innerW = Math.max(0.0008, width - 2 * borderM);
-    const innerH = Math.max(0.0008, height - 2 * borderM);
-    const appearance = finishAppearance(c);
-    const extruded = isExtrudedForm(PATTERNS[c.pattern]?.kind);
-    const maps = createSheetMaps(c, 4);
-    const group = new THREE.Group();
-    group.name = 'AR_SHEET';
-
-    const faceMat = new THREE.MeshStandardMaterial({
-      color: appearance.hex,
-      metalness: appearance.metalness,
-      roughness: appearance.roughness,
-      alphaTest: PATTERNS[c.pattern]?.through === false ? 0 : HOLE_ALPHA_TEST,
-      transparent: false,
-      side: THREE.FrontSide
-    });
-    bindPatternMaps(faceMat, null, maps, c);
-
-    const backMat = faceMat.clone();
-    backMat.side = THREE.FrontSide;
-    bindPatternMaps(null, backMat, maps, c);
-
-    const solidMat = new THREE.MeshStandardMaterial({
-      color: appearance.hex,
-      metalness: Math.min(1, appearance.metalness + 0.06),
-      roughness: Math.max(0.08, appearance.roughness - 0.06),
-      side: THREE.FrontSide
-    });
-
-    addSheetSkins(group, faceMat, backMat, solidMat, width, height, thickness, { ...c, _arExport: true });
-
-    if (extruded) {
-      addFormedFeatures(group, c, width, height, thickness, solidMat, { arExport: true });
-    }
-
-    group.traverse((obj) => {
-      if (!obj.isMesh) return;
-      if (obj.geometry?.type === 'ExtrudeGeometry') {
-        obj.name = 'AR_FRAME';
-        obj.renderOrder = 2;
-      } else if (obj.geometry?.type === 'PlaneGeometry' && !obj.name) {
-        obj.name = 'AR_FACE';
-        obj.renderOrder = 1;
-      }
-    });
-
-    group.userData.appearance = appearance;
-    group.userData.arConfig = c;
-    group.userData.exportFingerprint = usdzExportFingerprint(c);
-    group.userData.innerW = innerW;
-    group.userData.innerH = innerH;
-    group.userData.arFaceH = arFaceHeightM(innerH, c.border);
-    return { group, appearance, innerW, innerH };
+    return buildArSheetGroupForConfig(c);
   }
 
   async prepareGroupForUsdz(group, maxTextureSize = 4096) {
-    const appearance = group.userData.appearance || {};
-    const colorHex = appearance.hex || '#b8bcc2';
-    const config = group.userData.arConfig || null;
-    const innerW = group.userData.innerW || 0;
-    const innerH = group.userData.innerH || 0;
-    const arFaceH = group.userData.arFaceH || innerH;
-    expandInstancedMeshesForUsdz(group);
-    const tasks = [];
-    group.traverse((obj) => {
-      if (!obj.isMesh || !obj.material) return;
-      const source = obj.material;
-      if ((obj.name === 'AR_FACE' || obj.name === 'AR_BACK') && config && innerW > 0 && innerH > 0) {
-        tasks.push(bakeArFaceUsdzMap(source, config, colorHex, { maxSize: maxTextureSize, flipY: false }).then((map) => {
-          if (map) applyArFaceBleedUv(map, innerH, arFaceH);
-          const perforated = Boolean(source.alphaMap || source.bumpMap);
-          obj.material = new THREE.MeshStandardMaterial({
-            color: colorHex,
-            map: map || null,
-            metalness: source.metalness ?? appearance.metalness ?? 0.82,
-            roughness: source.roughness ?? appearance.roughness ?? 0.34,
-            alphaTest: perforated ? 0.35 : 0,
-            transparent: false,
-            depthWrite: true,
-            side: THREE.FrontSide
-          });
-        }));
-        return;
-      }
-      tasks.push(createUsdzMaterial(source, {
-        colorHex,
-        metalness: source.metalness ?? appearance.metalness ?? 0.82,
-        roughness: source.roughness ?? appearance.roughness ?? 0.34,
-        maxTextureSize,
-        perforated: false
-      }).then((mat) => {
-        obj.material = mat;
-      }));
-    });
-    await Promise.all(tasks);
+    return prepareArSheetGroupForExport(group, maxTextureSize);
   }
 
   async exportUSDZ(exportConfig = this.config) {
@@ -1558,6 +1621,21 @@ export class Three3DScene {
       bendAngle: 0,
       bendRadius: 0
     });
+
+    if (hasReferenceUsdzPattern(arConfig.pattern)) {
+      try {
+        const baseUrl = typeof import.meta !== 'undefined' && import.meta.env?.BASE_URL ? import.meta.env.BASE_URL : './';
+        const bytes = await exportScaledReferenceUsdz(arConfig, {
+          baseUrl,
+          userScale: this.scalePercent / 100
+        });
+        if (exportGen !== this.exportGen) throw new Error('stale-export');
+        return bytes;
+      } catch (err) {
+        if (exportGen !== this.exportGen || err?.message === 'stale-export') throw err;
+        console.warn('Reference USDZ export failed; using procedural geometry.', err);
+      }
+    }
 
     let group = null;
     try {
@@ -1582,6 +1660,11 @@ export class Three3DScene {
     } finally {
       if (group) disposeObject(group);
     }
+  }
+
+  /** Reference GLB export — same AR geometry path as Quick Look, binary glTF output. */
+  async exportReferenceGLB(exportConfig) {
+    return exportReferenceSheetGLB(exportConfig);
   }
 
   async enterAR({ overlay } = {}) {

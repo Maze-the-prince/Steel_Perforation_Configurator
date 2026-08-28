@@ -13,7 +13,9 @@
     "test:smoke": "node tests/smoke.mjs",
     "test:patterns": "node tests/patterns.mjs",
     "test:ar-usdz": "node tests/ar-usdz.mjs",
-    "test": "npm run test:smoke && npm run test:patterns && npm run test:ar-usdz"
+    "test:reference-usdz": "node tests/reference-usdz.mjs",
+    "bake:reference-glb": "node scripts/bake-reference-glbs.mjs",
+    "test": "npm run test:smoke && npm run test:patterns && npm run test:ar-usdz && npm run test:reference-usdz"
   },
   "engines": {
     "node": ">=18"
@@ -25,6 +27,8 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
+    "canvas": "^3.2.3",
+    "happy-dom": "^20.11.12",
     "vite": "^5.4.11"
   }
 }
