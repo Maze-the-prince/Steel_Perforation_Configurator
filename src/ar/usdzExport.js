@@ -163,10 +163,14 @@ function extendTextureForArFaceBleed(texture, innerHeightMm, arFaceHeightMm, col
   canvas.height = Math.max(img.height, Math.round(img.height / innerRatio));
   const ctx = canvas.getContext('2d');
   const color = resolveColor(colorHex);
-  ctx.fillStyle = `rgb(${Math.round(color.r * 255)},${Math.round(color.g * 255)},${Math.round(color.b * 255)})`;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
   const patternH = Math.round(canvas.height * innerRatio);
-  ctx.drawImage(img, 0, 0, img.width, img.height, 0, canvas.height - patternH, canvas.width, patternH);
+  const bleedH = canvas.height - patternH;
+  if (bleedH > 0) {
+    ctx.fillStyle = `rgb(${Math.round(color.r * 255)},${Math.round(color.g * 255)},${Math.round(color.b * 255)})`;
+    ctx.fillRect(0, 0, canvas.width, bleedH);
+  }
+  // Only fill the top bleed band — a full-canvas fill would paint over alpha cutouts.
+  ctx.drawImage(img, 0, 0, img.width, img.height, 0, bleedH, canvas.width, patternH);
   const next = texture.clone();
   next.image = canvas;
   next.repeat.set(1, 1);

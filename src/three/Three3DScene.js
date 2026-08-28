@@ -651,8 +651,12 @@ function addFormedFeatures(group, c, width, height, thickness, mat, { zLift, arE
   if (!isExtrudedForm(kind)) return null;
   const lift = zLift ?? (arExport ? 0 : FORMED_Z_LIFT);
   const tune = arExport ? getFormedExporterTune(c.pattern) : {};
-  const maxInstances = arExport ? Math.min(FORMED_INSTANCE_LIMIT, tune.arMaxInstances ?? 120000) : FORMED_INSTANCE_LIMIT;
-  const count = Math.min(maxInstances, estimatedHoleCount(c));
+  const totalHoles = estimatedHoleCount(c);
+  const maxInstances = arExport ? Math.min(FORMED_INSTANCE_LIMIT, tune.arMaxInstances ?? 8000) : FORMED_INSTANCE_LIMIT;
+  const stride = arExport ? Math.max(1, Math.ceil(totalHoles / maxInstances)) : 1;
+  const count = arExport
+    ? Math.min(maxInstances, Math.ceil(totalHoles / stride))
+    : Math.min(maxInstances, totalHoles);
   if (count <= 0) return null;
 
   let geometry;
@@ -699,7 +703,11 @@ function addFormedFeatures(group, c, width, height, thickness, mat, { zLift, arE
   mesh.receiveShadow = count <= 12000;
   mesh.castShadow = count <= 8000;
   let i = 0;
+  let holeIndex = 0;
   forEachHole(c, (x, y) => {
+    const pick = holeIndex % stride === 0;
+    holeIndex += 1;
+    if (!pick) return undefined;
     if (i >= count) return false;
     _formDummy.position.set(x / 1000 - width / 2, y / 1000, thickness / 2 + lift);
     _formDummy.rotation.set(0, 0, 0);
@@ -988,10 +996,8 @@ export class Three3DScene {
     this.formId = '';
     this.maxAnisotropy = 4;
     this.dimHud = null;
-    const platform = detectPlatform();
-    this.compact = isCompactWeb() || platform.ios;
-    this.mobileViewer = platform.ios || platform.android;
-    this.studioLighting = !this.compact || this.mobileViewer;
+    this.compact = isCompactWeb();
+    this.iosRenderer = detectPlatform().ios;
     this.pixelRatioCap = this.compact ? Math.min(devicePixelRatio || 1, 1.1) : Math.min(devicePixelRatio || 1, 1.5);
 
     this.renderer = new THREE.WebGLRenderer({
@@ -1001,7 +1007,7 @@ export class Three3DScene {
     this.renderer.setClearColor(this.studioColor, 1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = this.mobileViewer ? 1.36 : 1.32;
+    this.renderer.toneMappingExposure = 1.32;
     this.renderer.shadowMap.enabled = !this.compact;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.shadowMap.autoUpdate = !bakedShadows && !this.compact;
@@ -1010,7 +1016,7 @@ export class Three3DScene {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(this.studioColor);
-    this.scene.fog = this.mobileViewer ? null : new THREE.Fog(this.studioColor, 7.5, 16);
+    this.scene.fog = this.iosRenderer ? null : new THREE.Fog(this.studioColor, 7.5, 16);
     this.camera = new THREE.PerspectiveCamera(32, 1, 0.02, 100);
 
     const pmrem = new THREE.PMREMGenerator(this.renderer);
@@ -1021,7 +1027,7 @@ export class Three3DScene {
     this.maxAnisotropy = Math.min(this.compact ? 4 : 16, this.renderer.capabilities.getMaxAnisotropy() || 8);
     this.hemi = new THREE.HemisphereLight(0xf7f9fb, 0x8a9298, 1.85);
     this.scene.add(this.hemi);
-    this.keyLight = new THREE.DirectionalLight(0xffffff, this.studioLighting ? 2.62 : 2.2);
+    this.keyLight = new THREE.DirectionalLight(0xffffff, this.compact ? 2.2 : 2.62);
     this.keyLight.position.set(2.4, 4.8, 3.4);
     this.keyLight.castShadow = !this.compact;
     this.keyLight.shadow.mapSize.set(this.compact ? 512 : 1024, this.compact ? 512 : 1024);
@@ -1035,13 +1041,13 @@ export class Three3DScene {
     shadowCam.top = 2.4;
     shadowCam.bottom = -0.4;
     this.scene.add(this.keyLight);
-    this.rimLight = new THREE.DirectionalLight(0xd7e6ff, this.studioLighting ? 2.05 : 1.15);
+    this.rimLight = new THREE.DirectionalLight(0xd7e6ff, this.compact ? 1.15 : 2.05);
     this.rimLight.position.set(-3.2, 2.4, -2.8);
     this.scene.add(this.rimLight);
-    this.fillLight = new THREE.DirectionalLight(0xfff6ea, this.studioLighting ? 0.7 : 0.45);
+    this.fillLight = new THREE.DirectionalLight(0xfff6ea, this.compact ? 0.45 : 0.7);
     this.fillLight.position.set(-1.4, 1.6, 3.2);
     this.scene.add(this.fillLight);
-    if (this.studioLighting) {
+    if (!this.compact) {
       this.backLight = new THREE.DirectionalLight(0xffffff, 2.15);
       this.backLight.position.set(-2.1, 3.6, -3.8);
       this.scene.add(this.backLight);

@@ -25,16 +25,16 @@
   "formedCalibration": {
     "description": "Tuning for procedural formed-pattern geometry. Adjust after comparing Quick Look export to Blender reference USDZ in references/usdz/ (dev-only, not served in AR).",
     "default": {
-      "arMaxInstances": 120000,
+      "arMaxInstances": 8000,
       "arPerfoconSegments": 8,
-      "arTrieurWidthSegments": 10,
-      "arTrieurHeightSegments": 6
+      "arTrieurWidthSegments": 8,
+      "arTrieurHeightSegments": 4
     },
     "patterns": {
       "bridgeSlot": { "hoodRise": 1, "hoodLength": 1, "slotWidth": 1 },
       "embossed": { "embossSize": 1, "embossHeight": 1 },
-      "perfocon": { "coneHeight": 1 },
-      "trieur": { "cupDepth": 1 }
+      "perfocon": { "coneHeight": 1, "arMaxInstances": 12000 },
+      "trieur": { "cupDepth": 1, "arMaxInstances": 5000, "arTrieurWidthSegments": 6, "arTrieurHeightSegments": 4 }
     }
   },
   "expectedFiles": {

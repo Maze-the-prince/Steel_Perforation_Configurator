@@ -1,8 +1,28 @@
-export function isCompactWeb() {
+export function isIPad() {
   if (typeof window === 'undefined') return false;
   const ua = navigator.userAgent || '';
-  const ios = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  if (ios) return true;
+  if (/iPad/i.test(ua)) return true;
+  return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+}
+
+export function isIPhone() {
+  if (typeof window === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  return /iPhone|iPod/i.test(ua);
+}
+
+export function isIOS() {
+  return isIPad() || isIPhone();
+}
+
+export function isCompactWeb() {
+  if (typeof window === 'undefined') return false;
+  if (isIPhone()) return true;
+  if (isIPad()) {
+    const saveData = Boolean(navigator.connection?.saveData);
+    const lowMem = Number(navigator.deviceMemory) > 0 && navigator.deviceMemory <= 4;
+    return saveData || lowMem;
+  }
   const coarse = window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 1;
   const narrow = window.matchMedia('(max-width: 900px)').matches;
   const saveData = Boolean(navigator.connection?.saveData);
@@ -12,23 +32,27 @@ export function isCompactWeb() {
 
 export function detectPlatform() {
   const ua = navigator.userAgent || '';
-  const ios = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const ipad = isIPad();
+  const iphone = isIPhone();
+  const ios = ipad || iphone;
   const android = /Android/i.test(ua);
   const safari = ios && /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua);
   const secure = Boolean(window.isSecureContext);
-  const touchTablet = ios || (navigator.maxTouchPoints > 1 && !android && !/Mobile/i.test(ua));
+  const touchTablet = ipad || (navigator.maxTouchPoints > 1 && !android && !/Mobile/i.test(ua));
   let system = 'none';
   if (ios) system = 'quicklook';
   else if (android) system = 'webxr';
   return {
     ios,
+    ipad,
+    iphone,
     android,
     touchTablet,
     desktop: !ios && !android,
     safari,
     secure,
     system,
-    label: ios ? 'iOS' : android ? 'Android' : 'Desktop'
+    label: ipad ? 'iPad' : iphone ? 'iPhone' : android ? 'Android' : 'Desktop'
   };
 }
 
