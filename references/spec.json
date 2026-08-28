@@ -27,15 +27,15 @@
     "default": {
       "arMaxInstances": 60000,
       "viewerMaxInstances": 80000,
-      "arPerfoconSegments": 8,
-      "arTrieurWidthSegments": 10,
-      "arTrieurHeightSegments": 6
+      "arPerfoconSegments": 6,
+      "arTrieurWidthSegments": 8,
+      "arTrieurHeightSegments": 5
     },
     "patterns": {
-      "bridgeSlot": { "hoodRise": 1, "hoodLength": 1, "slotWidth": 1 },
-      "embossed": { "embossSize": 1, "embossHeight": 1 },
-      "perfocon": { "coneHeight": 1 },
-      "trieur": { "cupDepth": 1 }
+      "bridgeSlot": { "hoodRise": 1, "hoodLength": 1, "slotWidth": 1, "viewerMaxInstances": 25000, "arMaxInstances": 25000 },
+      "embossed": { "embossSize": 1, "embossHeight": 1, "viewerMaxInstances": 12000, "arMaxInstances": 10000 },
+      "perfocon": { "coneHeight": 1, "viewerMaxInstances": 12000, "arMaxInstances": 10000 },
+      "trieur": { "cupDepth": 1, "viewerMaxInstances": 15000, "arMaxInstances": 12000 }
     }
   },
   "expectedFiles": {

@@ -6,7 +6,7 @@ import { XREstimatedLight } from 'three/examples/jsm/webxr/XREstimatedLight.js';
 import { conicalProfile, cornerTreatmentMm, decorativeOffsets, estimatedHoleCount, finishAppearance, forEachHole, normalizeConfig, PATTERNS, STAGGER_ROW } from '../state/config.js';
 import { bindPbrMaps, loadPbrMaps } from './pbrMaterials.js';
 import { createUsdzMaterial, usdzExportFingerprint, arFaceHeightM, bakeArFaceUsdzMap, applyArFaceBleedUv, expandInstancedMeshesForUsdz, usdzFaceRepeat, innerFaceTextureSize, sheetInnerSizeMm } from '../ar/usdzExport.js';
-import { getFormedExporterTune } from '../ar/formedCalibration.js';
+import { getFormedExporterTune, getFormedInstanceCap, canPanelBakePattern } from '../ar/formedCalibration.js';
 import { detectPlatform, isCompactWeb } from '../ar/detect.js';
 
 const _hitPos = new THREE.Vector3();
@@ -236,15 +236,11 @@ function buildPatternMaps(config, maxAnisotropy = 4, { holeScale = 1, skipBump =
 function createSheetMaps(config, maxAnisotropy, { compact = false } = {}) {
   const c = normalizeConfig(config);
   const kind = PATTERNS[c.pattern]?.kind;
+  const usePanelBake = compact && canPanelBakePattern(c);
   if (PATTERNS[c.pattern]?.conical) {
     const cone = conicalProfile(c);
     const maps = buildPatternMaps(c, maxAnisotropy, { holeScale: 1, skipBump: true });
-    if (compact) {
-      maps.alphaMap = panelBakedAlphaMap(c, maxAnisotropy, 1);
-    }
-    maps.backAlphaMap = compact
-      ? panelBakedAlphaMap(c, maxAnisotropy, cone.exit / cone.entrance)
-      : buildPatternMaps(c, maxAnisotropy, { holeScale: cone.exit / cone.entrance, skipBump: true }).alphaMap;
+    maps.backAlphaMap = buildPatternMaps(c, maxAnisotropy, { holeScale: cone.exit / cone.entrance, skipBump: true }).alphaMap;
     return maps;
   }
   if (kind === 'embossed') {
@@ -259,18 +255,20 @@ function createSheetMaps(config, maxAnisotropy, { compact = false } = {}) {
   }
   if (kind === 'bridge') {
     const maps = buildPatternMaps(c, maxAnisotropy, { holeScale: 1, skipBump: true });
-    if (compact) maps.alphaMap = panelBakedAlphaMap(c, maxAnisotropy, 1);
+    if (usePanelBake) maps.alphaMap = panelBakedAlphaMap(c, maxAnisotropy, 1);
     maps.backAlphaMap = maps.alphaMap;
     return maps;
   }
   return buildPatternMaps(c, maxAnisotropy);
 }
 
-/** One-shot panel alpha map — avoids extreme UV repeat moiré on mobile for formed patterns. */
+/** One-shot panel alpha map — avoids extreme UV repeat moiré on mobile for low-density formed patterns. */
 function panelBakedAlphaMap(config, maxAnisotropy, holeScale = 1, maxSize = 2048) {
   const c = normalizeConfig(config);
   const { innerWidthMm, innerHeightMm } = sheetInnerSizeMm(c.width, c.height, c.border);
   const { repeatX, repeatY } = usdzFaceRepeat(c, innerWidthMm, innerHeightMm);
+  const tileCount = Math.ceil(repeatX) * Math.ceil(repeatY);
+  if (tileCount > 4500) return buildPatternMaps(c, maxAnisotropy, { holeScale, skipBump: true }).alphaMap;
   const { outW, outH } = innerFaceTextureSize(innerWidthMm, innerHeightMm, repeatX, repeatY, maxSize);
   const tileCanvas = paintPatternTile(c, { holeScale, bump: false });
   const canvas = document.createElement('canvas');
@@ -691,10 +689,10 @@ function addFormedFeatures(group, c, width, height, thickness, mat, { zLift = 0.
   const kind = PATTERNS[c.pattern]?.kind;
   if (!isExtrudedForm(kind)) return null;
   const tune = arExport ? getFormedExporterTune(c.pattern) : {};
-  const viewerCap = tune.viewerMaxInstances ?? (compact ? 80000 : 250000);
-  const maxInstances = arExport
-    ? Math.min(FORMED_INSTANCE_LIMIT, tune.arMaxInstances ?? 60000)
-    : Math.min(FORMED_INSTANCE_LIMIT, viewerCap);
+  const maxInstances = Math.min(
+    FORMED_INSTANCE_LIMIT,
+    getFormedInstanceCap(c.pattern, { arExport, compact })
+  );
   const count = Math.min(maxInstances, estimatedHoleCount(c));
   if (count <= 0) return null;
 
@@ -718,8 +716,8 @@ function addFormedFeatures(group, c, width, height, thickness, mat, { zLift = 0.
     sz = size * 0.38 * (tune.embossHeight ?? 1);
     geometry = embossedDiamondGeometry(thickness / sz);
   } else if (kind === 'perfocon') {
-    const segments = arExport
-      ? (tune.arPerfoconSegments ?? 8)
+    const segments = arExport || compact
+      ? (tune.arPerfoconSegments ?? 6)
       : (count > 80000 ? 8 : count > 25000 ? 12 : 16);
     geometry = perfoconConeGeometry(c, segments, tune);
     sx = 1;
@@ -830,7 +828,7 @@ export function buildArSheetGroupForConfig(c) {
   const innerH = Math.max(0.0008, height - 2 * borderM);
   const appearance = finishAppearance(c);
   const extruded = isExtrudedForm(PATTERNS[c.pattern]?.kind);
-  const maps = createSheetMaps(c, 4, { compact: true });
+  const maps = createSheetMaps(c, 4, { compact: canPanelBakePattern(c) });
   const group = new THREE.Group();
   group.name = 'AR_SHEET';
 
